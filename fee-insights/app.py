@@ -1126,7 +1126,7 @@ def sat_optin_import(body: dict = Body(...), dry_run: int = 0):
     changes without saving -- the UI shows that preview before applying.
     """
     text = str(body.get("csv") or "")
-    if text.startswith("\ufeff"):
+    if text.startswith(chr(0xFEFF)):          # UTF-8 BOM from Excel
         text = text[1:]
     reader = csv.DictReader(io.StringIO(text))
     cols = {c.strip().lower(): c for c in (reader.fieldnames or [])}
