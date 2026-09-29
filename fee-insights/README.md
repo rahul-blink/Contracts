@@ -32,6 +32,13 @@ chef skaffold up        # from this folder
 
 Rollback: point the Deployment back at image tag `dev-20260804-111006`.
 
+Deployed 2026-09-29 as image tag `01M3NX5EB244A3S7GSXTE7VVVE` through the
+Blinkit Apps connector (no local `chef` CLI in that session). That build
+applied the diff to the base image's `app.py` / `static/index.html` with a
+sha256 check on both sides, so the image holds exactly the files in this
+folder (app.py `618bbe0b…`, index.html `7bd880df…`); `fees.duckdb` was
+verified unchanged in the new image (`d2ecad32…`).
+
 The state PVC is ReadWriteOnce. If a future rollout schedules the new pod on
 another node it waits on the volume while the old pod keeps serving
 (`maxUnavailable: 0`); delete the old pod to let it proceed.
