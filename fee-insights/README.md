@@ -56,6 +56,7 @@ sha256 check on both sides, so the image holds exactly the files in this
 folder (app.py `618bbe0b…`, index.html `7bd880df…`); `fees.duckdb` was
 verified unchanged in the new image (`d2ecad32…`).
 
-The state PVC is ReadWriteOnce. If a future rollout schedules the new pod on
-another node it waits on the volume while the old pod keeps serving
-(`maxUnavailable: 0`); delete the old pod to let it proceed.
+The state PVC is ReadWriteOnce, so the Deployment uses `strategy: Recreate`:
+each deploy stops the old pod before starting the new one (~30-60 s of
+downtime) so the volume can move between nodes. The volume and the lists on
+it survive every deploy.

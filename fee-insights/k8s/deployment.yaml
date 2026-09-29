@@ -9,13 +9,12 @@ spec:
   selector:
     matchLabels:
       app: fee-insights
-  # maxUnavailable 0: the old pod keeps serving until the new one passes
-  # its readiness probe, so a bad build never takes the dashboard down.
+  # Recreate, not RollingUpdate: the state PVC is ReadWriteOnce, so a new pod
+  # scheduled on another node cannot attach it while the old pod holds it
+  # (seen on the 2026-09-29 opt-in rollout). Costs ~30-60 s of downtime per
+  # deploy; the volume and everything on it survive.
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    type: Recreate
   template:
     metadata:
       labels:
