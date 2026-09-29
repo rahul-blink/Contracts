@@ -1,0 +1,3468 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Satellite · Defects · KAM · Recall · Contracts — Fee Insights</title>
+<script src="/static/echarts.min.js"></script>
+<style>
+/* ==========================================================================
+   Design tokens.
+
+   Palette is the validated default categorical set (validate_palette.js:
+   ALL CHECKS PASS light + dark, worst adjacent CVD dE 9.1). Series colours are
+   assigned in fixed slot order and never cycled -- a 9th series folds into
+   "Other" (--series-other) instead of getting a generated hue.
+
+   Dark values are declared under BOTH the media query and the [data-theme]
+   scope so the in-app toggle wins over the OS setting in either direction.
+   ========================================================================== */
+:root {
+  --surface-1: #fcfcfb;          /* card surface */
+  --plane:     #f9f9f7;          /* page plane */
+  --sunken:    #f2f1ed;          /* inset wells, table header */
+  --text-1:    #0b0b0b;
+  --text-2:    #52514e;
+  --muted:     #898781;
+  --grid:      #e1e0d9;
+  --axis:      #c3c2b7;
+  --border:    rgba(11,11,11,0.10);
+  --border-2:  rgba(11,11,11,0.16);
+
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  --series-other: #898781;
+
+  /* sequential blue, light->dark; ordinal use starts at step 250 (2.06:1) */
+  --q1: #86b6ef; --q2: #5598e7; --q3: #3987e5; --q4: #2a78d6;
+  --q5: #256abf; --q6: #1c5cab; --q7: #104281;
+
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --good-text: #006300;
+
+  --r: 10px;
+  --shadow: 0 1px 2px rgba(11,11,11,.04), 0 1px 10px rgba(11,11,11,.03);
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    --surface-1: #1a1a19; --plane: #0d0d0d; --sunken: #232322;
+    --text-1: #ffffff; --text-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835;
+    --border: rgba(255,255,255,0.10); --border-2: rgba(255,255,255,0.18);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --q1: #184f95; --q2: #1c5cab; --q3: #256abf; --q4: #2a78d6;
+    --q5: #3987e5; --q6: #5598e7; --q7: #86b6ef;
+    --good-text: #0ca30c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --surface-1: #1a1a19; --plane: #0d0d0d; --sunken: #232322;
+  --text-1: #ffffff; --text-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835;
+  --border: rgba(255,255,255,0.10); --border-2: rgba(255,255,255,0.18);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --q1: #184f95; --q2: #1c5cab; --q3: #256abf; --q4: #2a78d6;
+  --q5: #3987e5; --q6: #5598e7; --q7: #86b6ef;
+  --good-text: #0ca30c;
+  color-scheme: dark;
+}
+
+/* ==========================================================================
+   Reset + the no-horizontal-scroll contract.
+
+   Three rules keep the page free of horizontal scroll at every width:
+     1. box-sizing: border-box everywhere, so padding never adds width.
+     2. every grid track is minmax(0, ...) and every flex child that holds text
+        gets min-width: 0 -- without those, a long unbroken string (an item name,
+        a manufacturer's legal name) forces its track wider than the viewport.
+     3. every cell that can hold a long string truncates with ellipsis and
+        carries the full text in title=.
+   overflow-x: clip on the shell is the backstop, not the mechanism.
+   ========================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; max-width: 100%; overflow-x: clip; }
+body {
+  font-family: var(--sans);
+  background: var(--plane);
+  color: var(--text-1);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+h1,h2,h3,h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+button, input, select { font: inherit; color: inherit; }
+
+/* ---------- app shell ---------- */
+.shell { max-width: 1560px; margin: 0 auto; padding: 0 20px 56px; }
+
+/* The header is a full-bleed band with its own .shell inside, so it carries NO
+   negative margin -- a `margin: 0 -20px` here would make the element 40px wider
+   than the viewport, which is real overflow even though overflow-x: clip hides
+   the scrollbar. */
+header.top {
+  position: sticky; top: 0; z-index: 40;
+  background: color-mix(in srgb, var(--plane) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 20px; max-width: 100%;
+}
+.brandrow {
+  display: flex; align-items: center; gap: 14px;
+  flex-wrap: wrap; padding: 13px 0 11px; min-width: 0;
+}
+.mark {
+  width: 30px; height: 30px; border-radius: 8px; flex: none;
+  background: linear-gradient(140deg, var(--s1), var(--s7));
+  display: grid; place-items: center; color: #fff;
+  font-size: 13px; font-weight: 700; letter-spacing: -.03em;
+}
+.brand { min-width: 0; flex: 1 1 220px; }
+.brand h1 { font-size: 15px; line-height: 1.25; }
+.brand p { margin: 1px 0 0; font-size: 11.5px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topacts { display: flex; align-items: center; gap: 8px; flex: none; }
+
+/* Tabs WRAP rather than scroll. A horizontally-scrolling tab strip is the
+   conventional narrow-screen answer, but it is still horizontal scroll — so at
+   narrow widths the strip becomes two rows instead. */
+nav.tabs {
+  display: flex; gap: 3px 2px; flex-wrap: wrap;
+  padding-bottom: 8px; margin-bottom: -1px; max-width: 100%;
+}
+nav.tabs button {
+  flex: 0 1 auto; min-width: 0; background: none; border: 0; cursor: pointer;
+  padding: 7px 13px; border-radius: 8px 8px 0 0;
+  font-size: 13px; font-weight: 500; color: var(--text-2);
+  border-bottom: 2px solid transparent; white-space: nowrap;
+}
+@media (max-width: 760px) { nav.tabs button { padding: 7px 9px; font-size: 12.5px; } }
+nav.tabs button:hover { background: var(--sunken); color: var(--text-1); }
+nav.tabs button[aria-selected="true"] {
+  color: var(--text-1); font-weight: 600; border-bottom-color: var(--s1);
+}
+nav.tabs button .n {
+  font-size: 10.5px; color: var(--muted); margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- controls ---------- */
+.btn {
+  background: var(--surface-1); border: 1px solid var(--border-2);
+  border-radius: 8px; padding: 6px 11px; cursor: pointer;
+  font-size: 12.5px; color: var(--text-2); white-space: nowrap;
+}
+.btn:hover { border-color: var(--muted); color: var(--text-1); }
+.btn.sm { padding: 4px 9px; font-size: 11.5px; }
+.seg {
+  display: inline-flex; background: var(--sunken); border-radius: 8px;
+  padding: 2px; gap: 2px; flex-wrap: wrap;
+}
+.seg button {
+  background: none; border: 0; cursor: pointer; border-radius: 6px;
+  padding: 5px 11px; font-size: 12.5px; color: var(--text-2); white-space: nowrap;
+}
+.seg button[aria-pressed="true"] {
+  background: var(--surface-1); color: var(--text-1); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(11,11,11,.06);
+}
+label.fld { display: inline-flex; flex-direction: column; gap: 3px; min-width: 0; }
+label.fld > span { font-size: 10.5px; color: var(--muted); font-weight: 500;
+  text-transform: uppercase; letter-spacing: .05em; }
+input[type=search], input[type=text], select {
+  background: var(--surface-1); border: 1px solid var(--border-2);
+  border-radius: 8px; padding: 6px 10px; font-size: 13px; min-width: 0;
+  max-width: 100%;
+}
+input[type=search]:focus, select:focus { outline: 2px solid var(--s1); outline-offset: -1px; }
+.filters {
+  display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;
+  padding: 12px 14px; background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: var(--r);
+  margin-bottom: 16px; box-shadow: var(--shadow);
+}
+.filters .grow { flex: 1 1 200px; min-width: 0; }
+.filters .spacer { flex: 1 1 0; min-width: 0; }
+
+/* ---------- stat tiles ---------- */
+.tiles {
+  display: grid; gap: 12px; margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 172px), 1fr));
+}
+.tile {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 13px 14px 14px; min-width: 0;
+  box-shadow: var(--shadow);
+}
+.tile .lab {
+  font-size: 11px; color: var(--muted); font-weight: 500; line-height: 1.35;
+  display: block; margin-bottom: 5px;
+}
+.tile .val {
+  font-size: 23px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15;
+  overflow-wrap: anywhere;  /* proportional figures: never tabular-nums here */
+}
+.tile .sub { font-size: 11.5px; color: var(--text-2); margin-top: 3px; line-height: 1.4; }
+/* Second sub-line: the scope/caveat a count needs to not read as inconsistent. */
+.tile .sub3 { display: block; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+.tile.hero .val { font-size: 34px; }
+.tile.accent { border-color: color-mix(in srgb, var(--s1) 32%, var(--border)); }
+
+/* ---------- cards / grid ---------- */
+.grid { display: grid; gap: 16px; margin-bottom: 16px; align-items: start; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.g-wide { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+/* Mirror of g-wide: a narrow left column for a tall list (the clause meters)
+   beside a wide right column that stacks the charts which would otherwise push
+   the page down. Keeps the two columns roughly equal in height. */
+.g-narrow { grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr); }
+.stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.stack > .grid { margin-bottom: 0; }
+@media (max-width: 1080px) {
+  .g-wide, .g-narrow { grid-template-columns: minmax(0, 1fr); }
+}
+
+.card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 15px 16px 16px; min-width: 0;
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.card > .hd {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 3px; min-width: 0;
+}
+.card h3 { font-size: 13.5px; min-width: 0; }
+.card .sub { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin: 0 0 12px; }
+.card .hd .acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Chart boxes are sized to include the x-axis band, so a card never gets a
+   nested scrollbar to reveal its own axis labels. */
+.chart { width: 100%; min-width: 0; height: 260px; }
+.chart.tall { height: 330px; }
+.chart.xtall { height: 420px; }
+.chart.short { height: 190px; }
+
+/* ---------- legend (identity is never colour-alone) ---------- */
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; }
+.legend .it { display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--text-2); min-width: 0; }
+.legend .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.legend .it.line .sw { height: 2px; width: 14px; border-radius: 1px; }
+
+/* ---------- tables ----------
+   table-layout: fixed + per-column widths + ellipsis is what makes a
+   many-column table fit any viewport without horizontal scroll. */
+.tw { width: 100%; min-width: 0; }
+.tw.scrollY { max-height: 460px; overflow-y: auto; overflow-x: hidden; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+th, td {
+  text-align: left; padding: 7px 9px; font-size: 12.5px;
+  border-bottom: 1px solid var(--grid);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--surface-1); color: var(--muted);
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .05em; border-bottom: 1px solid var(--axis);
+}
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Responsive columns. Below these widths a secondary column is DROPPED rather
+   than squeezed to 40px, where ellipsis would eat most of the text. The value
+   is still in the CSV export and the row's title tooltip, so nothing is lost --
+   this is the "fits, and is readable" half of the no-h-scroll contract. */
+@media (max-width: 1100px) { th.hn2, td.hn2 { display: none; } }
+@media (max-width: 900px)  { th.hn,  td.hn  { display: none; } }
+tbody tr:hover { background: var(--sunken); }
+tbody tr.clickable { cursor: pointer; }
+tbody tr:last-child td { border-bottom: 0; }
+td .mono { font-variant-numeric: tabular-nums; }
+td .dim { color: var(--muted); }
+td .sub2 { display: block; font-size: 11px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; }
+.rankdot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+  margin-right: 7px; flex: none; vertical-align: 1px;
+}
+/* In-cell magnitude bar. Lives behind the number, so the value is always
+   readable as text -- the bar is redundant encoding, never the only channel. */
+.barcell { position: relative; }
+.barcell .fillbar {
+  position: absolute; left: 0; top: 4px; bottom: 4px; border-radius: 3px;
+  background: color-mix(in srgb, var(--s1) 16%, transparent);
+  pointer-events: none;
+}
+.barcell > span { position: relative; }
+
+/* ---------- badges / notes ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; border-radius: 999px;
+  padding: 1px 8px; font-size: 10.5px; font-weight: 600; white-space: nowrap;
+  border: 1px solid var(--border-2); color: var(--text-2); background: var(--sunken);
+}
+.badge.on   { color: var(--good-text); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
+.badge.off  { color: var(--muted); }
+.badge.warn { color: #8a5a00; border-color: color-mix(in srgb, var(--warning) 55%, transparent); }
+:root[data-theme="dark"] .badge.warn { color: var(--warning); }
+.badge.crit { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 45%, transparent); }
+.badge .ic { font-size: 10px; }
+
+.note {
+  display: flex; gap: 10px; padding: 11px 13px; border-radius: var(--r);
+  border: 1px solid var(--border); background: var(--surface-1);
+  font-size: 12.5px; line-height: 1.5; margin-bottom: 10px; min-width: 0;
+}
+.note .ic { flex: none; font-size: 13px; line-height: 1.4; }
+.note .bd { min-width: 0; }
+.note b { font-weight: 600; }
+.note.error   { border-left: 3px solid var(--critical); }
+.note.error .ic { color: var(--critical); }
+.note.warn    { border-left: 3px solid var(--warning); }
+.note.warn .ic { color: var(--warning); }
+.note.info    { border-left: 3px solid var(--s1); }
+.note.info .ic { color: var(--s1); }
+.note .lbl { font-weight: 600; margin-right: 4px; }
+
+/* ---------- breadcrumb drill ---------- */
+.crumbs {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12.5px; min-width: 0; margin-bottom: 12px;
+}
+.crumbs .cb {
+  display: inline-flex; align-items: center; gap: 6px; max-width: min(100%, 300px);
+  background: var(--surface-1); border: 1px solid var(--border-2);
+  border-radius: 999px; padding: 3px 10px;
+}
+.crumbs .cb .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumbs .cb .k { color: var(--muted); font-size: 10.5px; flex: none;
+  text-transform: uppercase; letter-spacing: .04em; }
+.crumbs .cb button {
+  background: none; border: 0; cursor: pointer; color: var(--muted);
+  padding: 0 0 0 2px; font-size: 14px; line-height: 1; flex: none;
+}
+.crumbs .cb button:hover { color: var(--critical); }
+.crumbs .sep { color: var(--muted); flex: none; }
+
+/* ---------- word cloud ----------
+   Flow layout, not a packed cloud: real selectable text that cannot overlap by
+   construction, and it reflows instead of overflowing at narrow widths. Size
+   encodes mentions; colour encodes the dominant complaint type (identity). */
+.cloud {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 5px 14px; padding: 6px 0 2px; min-width: 0;
+}
+/* The word itself wears INK, never the series colour: a light categorical hue
+   (yellow, aqua, magenta) is below 3:1 on this surface and illegible as text.
+   Identity rides the small dot beside the word instead, which is the same
+   mechanism the tables and legends use. Size carries magnitude. */
+.cloud .w {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  line-height: 1.25; font-weight: 600; letter-spacing: -0.01em;
+  color: var(--text-1); cursor: default;
+  border-bottom: 2px solid transparent;
+  max-width: 100%; overflow-wrap: anywhere;
+}
+.cloud .w .cd {
+  width: 7px; height: 7px; border-radius: 2px; flex: none;
+  align-self: center; margin-bottom: 1px;
+}
+.cloud .w:hover { border-bottom-color: var(--axis); }
+
+/* ---------- meter (clause adoption) ---------- */
+.meters { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.mrow { display: grid; grid-template-columns: minmax(0, 1fr) 52px; gap: 10px;
+  align-items: center; min-width: 0; }
+.mrow .nm { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; min-width: 0; }
+.mrow .pc { font-size: 12px; color: var(--text-2); text-align: right;
+  font-variant-numeric: tabular-nums; }
+.track {
+  grid-column: 1 / -1; height: 7px; border-radius: 4px;
+  background: color-mix(in srgb, var(--q1) 40%, transparent); overflow: hidden;
+}
+.track .fill { height: 100%; border-radius: 4px; background: var(--s1); }
+.mgroup { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); font-weight: 600; margin: 14px 0 2px; }
+.mgroup:first-child { margin-top: 0; }
+
+/* ---------- executive summary findings ---------- */
+ul.exec { margin: 6px 0 0; padding-left: 17px; }
+ul.exec li { font-size: 12.5px; color: var(--text-2); line-height: 1.55;
+  margin-bottom: 8px; overflow-wrap: anywhere; }
+ul.exec li::marker { color: var(--muted); }
+
+/* ---------- drawer ---------- */
+.scrim {
+  position: fixed; inset: 0; background: rgba(11,11,11,.34); z-index: 60;
+  opacity: 0; pointer-events: none; transition: opacity .16s;
+}
+.scrim.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 61;
+  width: min(620px, 100vw - 24px);
+  background: var(--surface-1); border-left: 1px solid var(--border);
+  box-shadow: -8px 0 30px rgba(11,11,11,.14);
+  transform: translateX(101%); transition: transform .2s ease;
+  display: flex; flex-direction: column; max-width: 100vw;
+}
+.drawer.open { transform: none; }
+.drawer .dhd {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 15px 16px; border-bottom: 1px solid var(--border); min-width: 0;
+}
+.drawer .dhd .t { min-width: 0; flex: 1; }
+.drawer .dhd h3 { font-size: 14px; line-height: 1.3; overflow-wrap: anywhere; }
+.drawer .dhd p { margin: 3px 0 0; font-size: 11.5px; color: var(--muted); }
+.drawer .db { padding: 15px 16px 40px; overflow-y: auto; overflow-x: hidden; flex: 1; }
+.kvs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+.kv {
+  display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr);
+  gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--grid); font-size: 12.5px;
+}
+.kv .k { color: var(--muted); overflow-wrap: anywhere; }
+.kv .v { overflow-wrap: anywhere; }
+.dsec { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); font-weight: 600; margin: 18px 0 5px; }
+.dsec:first-child { margin-top: 0; }
+
+/* ---------- misc ---------- */
+.empty { padding: 26px 14px; text-align: center; color: var(--muted); font-size: 12.5px; }
+.loading { opacity: .45; transition: opacity .12s; }  /* hold previous render, no skeleton flash */
+.hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.defs { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.def { padding: 11px 12px; background: var(--sunken); border-radius: 8px; min-width: 0; }
+.def .t { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+.def .d { font-size: 11.5px; color: var(--text-2); line-height: 1.5; overflow-wrap: anywhere; }
+.tabpanel[hidden] { display: none; }
+
+/* ---------- global period bar ---------- */
+.periodbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 0 11px; border-top: 1px solid var(--border); margin-top: -1px;
+}
+.periodbar[hidden] { display: none; }
+.periodbar .plab {
+  font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted);
+}
+.pfld { display: flex; align-items: center; gap: 6px; }
+.pfld > span { font-size: 11.5px; color: var(--text-2); }
+.pfld input[type="month"] {
+  background: var(--surface); color: var(--text-1);
+  border: 1px solid var(--border); border-radius: 7px;
+  padding: 4px 7px; font: inherit; font-size: 12px;
+}
+.ppresets { display: flex; gap: 6px; flex-wrap: wrap; }
+.ppresets button {
+  background: var(--sunken); color: var(--text-2); cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 10px; font: inherit; font-size: 11.5px;
+}
+.ppresets button:hover { color: var(--text-1); border-color: var(--s1); }
+.ppresets button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--s1) 16%, var(--surface));
+  border-color: var(--s1); color: var(--text-1); font-weight: 600;
+}
+.pcov { font-size: 11px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+.pcov b { font-weight: 600; color: var(--text-2); }
+/* A source with no rows in the active period. Never colour alone: the label also
+   carries the word "none". */
+.pcov .out { color: var(--warning); text-decoration: line-through; }
+#periodWarnWrap:empty, #periodWarn:empty { display: none; }
+#periodWarn { margin-top: 14px; }
+.srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="shell" style="padding-bottom:0">
+    <div class="brandrow">
+      <div class="mark">FI</div>
+      <div class="brand">
+        <h1>Fee Insights — Satellite · Defects · KAM · Recall · Contracts</h1>
+        <p id="provenance">loading…</p>
+      </div>
+      <div class="topacts">
+        <button class="btn sm" id="themeBtn" title="Toggle light / dark">◐ Theme</button>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist" id="tabs">
+      <button role="tab" data-tab="contracts" aria-selected="true">Contracts <span class="n" id="nCon"></span></button>
+      <button role="tab" data-tab="cities"    aria-selected="false">Satellite cities <span class="n" id="nCities"></span></button>
+      <button role="tab" data-tab="satellite" aria-selected="false">Satellite fees <span class="n" id="nSat"></span></button>
+      <button role="tab" data-tab="defects"   aria-selected="false">Defective products <span class="n" id="nDef"></span></button>
+      <button role="tab" data-tab="kam"       aria-selected="false">KAM fees <span class="n" id="nKam"></span></button>
+      <button role="tab" data-tab="recall"    aria-selected="false">Recall assistance <span class="n" id="nRecall"></span></button>
+      <button role="tab" data-tab="data"      aria-selected="false">Data &amp; definitions <span class="n" id="nNotes"></span></button>
+    </nav>
+    <!-- Global period. Applies to every tab except Contracts (a contract book is
+         a current-state snapshot, not a period fact) and Data. The coverage strip
+         is not decoration: the sources do NOT share a window, so a period that is
+         valid for one tab can legitimately empty another. -->
+    <div class="periodbar" id="periodBar" hidden>
+      <span class="plab">Period</span>
+      <label class="pfld"><span>From</span><input type="month" id="pFrom"></label>
+      <label class="pfld"><span>To</span><input type="month" id="pTo"></label>
+      <div class="ppresets" id="pPresets"></div>
+      <button class="btn sm" id="pClear" hidden>✕ Clear period</button>
+      <div class="spacer"></div>
+      <span class="pcov" id="pCoverage"></span>
+    </div>
+  </div>
+</header>
+<div class="shell" id="periodWarnWrap"><div id="periodWarn"></div></div>
+
+<main class="shell">
+
+<!-- ==================== 1. SATELLITE CITIES ==================== -->
+<section class="tabpanel" id="p-cities" role="tabpanel" hidden>
+  <div class="tiles" id="cityTiles"></div>
+  <div id="cityValidation"></div>
+
+  <div class="grid g2">
+    <div class="card">
+      <div class="hd"><h3>Satellite cities by break-even distance</h3></div>
+      <p class="sub">How the 227-city master list distributes across distance bands. Bands are ordered, so they use one blue ramp rather than categorical hues.</p>
+      <div class="chart short" id="chCityBand"></div>
+      <div class="legend" id="lgCityBand"></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3>Satellite fee by distance band</h3>
+        <div class="acts"><span class="hint" id="bandScopeNote"></span></div></div>
+      <p class="sub">Fee earned per band. A band with many cities but little fee has satellite outlets that are not yet selling.</p>
+      <div class="chart short" id="chBandFee"></div>
+    </div>
+  </div>
+
+  <div class="filters">
+    <label class="fld grow"><span>Search city</span>
+      <input type="search" id="cSearch" placeholder="Type a city name — e.g. Aligarh, Bijnor, Vapi"></label>
+    <label class="fld"><span>Scope</span>
+      <select id="cScope">
+        <option value="sat">On master list (satellite)</option>
+        <option value="off">Not on master list</option>
+        <option value="all">All cities in extract</option>
+      </select></label>
+    <label class="fld"><span>Distance band</span><select id="cBand"><option value="all">All bands</option></select></label>
+    <label class="fld"><span>Billing</span>
+      <select id="cBilling">
+        <option value="all">All</option>
+        <option value="yes">Recorded fee</option>
+        <option value="no">No fee this period</option>
+      </select></label>
+    <label class="fld"><span>Sort</span>
+      <select id="cSort">
+        <option value="distance_desc">Distance ↓</option>
+        <option value="distance_asc">Distance ↑</option>
+        <option value="fee_desc">Fee ↓</option>
+        <option value="qty_desc">Units ↓</option>
+        <option value="items_desc">Items ↓</option>
+        <option value="mfrs_desc">Manufacturers ↓</option>
+        <option value="city">City A–Z</option>
+      </select></label>
+    <div class="spacer"></div>
+    <button class="btn" id="cCsv">↓ CSV</button>
+  </div>
+
+  <div class="card">
+    <div class="hd"><h3 id="cityTblTitle">City list</h3>
+      <div class="acts"><span class="hint" id="cityTblMeta"></span></div></div>
+    <div class="tw scrollY" id="cityTblWrap"><table id="cityTbl"></table></div>
+  </div>
+
+  <!-- Where the satellite cities actually are. One measure on the dot area (fee),
+       and billing status carried by hue *plus* the legend text, never hue alone. -->
+  <div class="card">
+    <div class="hd"><h3>Where the satellite cities are</h3>
+      <div class="acts">
+        <select id="cMapMeasure" style="max-width:180px">
+          <option value="fee">Size by fee</option>
+          <option value="net_qty">Size by units</option>
+          <option value="distance_km">Size by break-even distance</option>
+          <option value="none">Uniform dots</option>
+        </select>
+      </div></div>
+    <p class="sub">All <b>227</b> cities on the master list, placed by GeoNames coordinates. Dot area is the measure; a city that billed nothing in the period is drawn hollow so it is still visible. Drag to pan, scroll to zoom. <span class="hint" id="cMapNote"></span></p>
+    <!-- India's bounding box is ~29° x 30°, so the canvas is capped near square
+         and centred: at full card width the map would be a small shape in a field
+         of empty pixels. -->
+    <div class="chart" id="chCityMap" style="height:600px;max-width:660px;margin:0 auto"></div>
+    <div class="legend" id="lgCityMap"></div>
+  </div>
+</section>
+
+<!-- ==================== 2. SATELLITE FEES ==================== -->
+<section class="tabpanel" id="p-satellite" role="tabpanel" hidden>
+  <div class="tiles" id="satTiles"></div>
+  <div id="satScopeNote"></div>
+
+  <div class="filters">
+    <label class="fld"><span>City scope</span>
+      <select id="sScope">
+        <option value="sat">Satellite cities only (validated)</option>
+        <option value="off">Off-list cities only</option>
+        <option value="all">All cities in extract</option>
+      </select></label>
+    <label class="fld"><span>MRP bucket</span><select id="sBucket"><option value="all">All buckets</option></select></label>
+    <label class="fld"><span>Product type</span><select id="sType"><option value="all">All types</option></select></label>
+    <label class="fld"><span>Contract state</span><select id="sState"><option value="all">All states</option></select></label>
+    <div class="spacer"></div>
+    <button class="btn" id="sReset">Clear drill</button>
+  </div>
+
+  <div class="crumbs" id="satCrumbs"></div>
+
+  <div class="grid g-wide">
+    <div class="card">
+      <div class="hd"><h3 id="satTrendTitle">Daily satellite fee</h3></div>
+      <p class="sub" id="satTrendSub">Fee accrued per day for the current slice.</p>
+      <div class="chart" id="chSatTrend"></div>
+      <div class="legend" id="lgSatTrend"></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3>Fee composition</h3></div>
+      <p class="sub">MRP bucket and product type. Two charts, one measure each — never a shared axis.</p>
+      <div class="chart short" id="chSatBucket"></div>
+      <div class="chart short" id="chSatPtype" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <div class="filters">
+    <label class="fld"><span>Break down by</span>
+      <div class="seg" id="satDimSeg">
+        <button data-dim="city" aria-pressed="true">City</button>
+        <button data-dim="mfr" aria-pressed="false">Manufacturer</button>
+        <button data-dim="item" aria-pressed="false">Item</button>
+        <button data-dim="facility" aria-pressed="false">Facility</button>
+      </div>
+    </label>
+    <label class="fld grow"><span>Search within breakdown</span>
+      <input type="search" id="sSearch" placeholder="Filter the rows below"></label>
+    <label class="fld"><span>Sort</span>
+      <select id="sSort">
+        <option value="fee">Fee ↓</option>
+        <option value="qty">Units ↓</option>
+        <option value="rate">Rate / unit ↓</option>
+        <option value="fee_asc">Fee ↑</option>
+        <option value="name">Name A–Z</option>
+      </select></label>
+    <label class="fld"><span>Rows</span>
+      <select id="sLimit"><option>25</option><option selected>50</option><option>100</option><option>250</option><option>1000</option></select></label>
+    <div class="spacer"></div>
+    <button class="btn" id="sCsv">↓ CSV</button>
+  </div>
+
+  <div class="grid g-wide">
+    <div class="card">
+      <div class="hd"><h3 id="satByTitle">Top by fee</h3>
+        <div class="acts"><span class="hint">Click a row to drill in</span></div></div>
+      <p class="sub" id="satBySub"></p>
+      <div class="tw scrollY" id="satByWrap"><table id="satByTbl"></table></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3 id="satBarTitle">Top 12</h3></div>
+      <p class="sub">Ranked share of fee within the current slice.</p>
+      <div class="chart xtall" id="chSatBar"></div>
+    </div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <div class="hd"><h3>Per-unit fee rates driving the total</h3></div>
+      <p class="sub">Top 15 rates by fee contributed. <b>fee_amt is a rate, not money</b> — this is a histogram over rate values, never a sum of them.</p>
+      <div class="chart" id="chSatRate"></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3>Serving facility</h3>
+        <div class="acts"><button class="btn sm" id="fCsv">↓ CSV</button></div></div>
+      <p class="sub">Which mother facility the satellite fee sits behind, for the current city drill.</p>
+      <div class="tw scrollY" style="max-height:300px" id="satFacWrap"><table id="satFacTbl"></table></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 3. DEFECTIVE PRODUCTS ==================== -->
+<section class="tabpanel" id="p-defects" role="tabpanel" hidden>
+  <div class="tiles" id="defTiles"></div>
+  <div id="defNote"></div>
+
+  <!-- Executive summary. Every claim carries the number it rests on, and the
+       read-across is labelled as interpretation rather than mixed in with the
+       measurements. -->
+  <div class="card" id="defExecCard">
+    <div class="hd"><h3>Executive summary — why items come back</h3></div>
+    <p class="sub">Measured from <span id="defExecScope"></span>. The five failure modes below are a <b>grouping of the extract's 14 raw <code>complaint_type</code> values</b>, not a column in the data — the per-type chart further down is the source of truth.</p>
+    <div id="defExecBody"></div>
+  </div>
+
+  <div class="filters">
+    <label class="fld"><span>Complaint type</span><select id="dType"><option value="">All complaint types</option></select></label>
+    <label class="fld grow"><span>Search item or manufacturer</span>
+      <input type="search" id="dSearch" placeholder="Filter the tables below"></label>
+    <label class="fld"><span>Rows</span>
+      <select id="dLimit"><option>25</option><option selected>50</option><option>100</option><option>250</option></select></label>
+    <div class="spacer"></div>
+    <button class="btn" id="dCsv">↓ CSV</button>
+  </div>
+
+  <div class="grid g-wide">
+    <div class="card">
+      <div class="hd"><h3>Defect fee by complaint type</h3></div>
+      <p class="sub">Units returned × ₹50. Damaged-item complaints dominate; everything else is a long tail.</p>
+      <div class="chart tall" id="chDefType"></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3>Daily defective units</h3></div>
+      <p class="sub" id="defTrendSub">Units returned per day.</p>
+      <div class="chart" id="chDefTrend"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="hd">
+      <h3>How customers describe the defect</h3>
+      <div class="acts">
+        <div class="seg" id="ngramSeg">
+          <button data-ngram="1" aria-pressed="true">Words</button>
+          <button data-ngram="2" aria-pressed="false">Phrases</button>
+        </div>
+        <button class="btn sm" id="cloudTblBtn">Table view</button>
+        <button class="btn sm" id="tCsv">↓ CSV</button>
+      </div>
+    </div>
+    <p class="sub">Mined from the free-text remarks with the returns-UI boilerplate and the item name stripped first, counted once per complaint so one long rant cannot inflate a term. Size = complaints mentioning the term; colour = the complaint type that term appears in most.</p>
+    <div class="cloud" id="defCloud"></div>
+    <div class="legend" id="lgCloud"></div>
+    <div class="tw scrollY" id="cloudTblWrap" hidden style="max-height:320px;margin-top:12px"><table id="cloudTbl"></table></div>
+  </div>
+
+  <div class="grid g-wide">
+    <div class="card">
+      <div class="hd"><h3>Products with the most defects</h3>
+        <div class="acts"><span class="hint">Click a row for its complaint mix</span></div></div>
+      <p class="sub" id="defItemSub"></p>
+      <div class="tw scrollY" id="defItemWrap"><table id="defItemTbl"></table></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3>Manufacturers by defect fee</h3></div>
+      <p class="sub">Who the ₹50/unit recovery is charged to.</p>
+      <div class="tw scrollY" id="defMfrWrap"><table id="defMfrTbl"></table></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 4. KAM FEES ==================== -->
+<section class="tabpanel" id="p-kam" role="tabpanel" hidden>
+  <div class="tiles" id="kamTiles"></div>
+  <div id="kamNote"></div>
+
+  <div class="filters">
+    <label class="fld"><span>Contract state</span>
+      <select id="kState">
+        <option value="all">All states (accrued)</option>
+        <option value="APPROVED">APPROVED only (billable)</option>
+        <option value="PENDING APPROVAL">PENDING APPROVAL</option>
+        <option value="DRAFT">DRAFT</option>
+      </select></label>
+    <label class="fld"><span>Month</span><select id="kMonth"><option value="">All months (accrued to date)</option></select></label>
+    <label class="fld grow"><span>Search manufacturer</span>
+      <input type="search" id="kSearch" placeholder="Filter the table below"></label>
+    <div class="spacer"></div>
+    <button class="btn" id="kCsv">↓ CSV</button>
+  </div>
+
+  <div class="card">
+    <div class="hd"><h3>Total KAM fee per month</h3>
+      <div class="acts"><span class="hint" id="kamTotNote"></span></div></div>
+    <p class="sub">Each contract accrues its monthly KAM charge from the month it went effective, split by contract state. Every KAM contract is valid-until-cancelled, so nothing stops accruing — the total rises as contracts are added. Only the APPROVED band is billable today.</p>
+    <div class="chart tall" id="chKamTotal"></div>
+    <div class="legend" id="lgKamTotal"></div>
+  </div>
+
+  <div class="card">
+    <div class="hd"><h3 id="kamTopTitle">KAM fee by manufacturer</h3>
+      <div class="acts"><span class="hint" id="kamTopHint"></span></div></div>
+    <p class="sub">164 of 169 contracts charge the identical ₹50,000/month, so each manufacturer is well under 1% of the monthly total — a stacked-by-manufacturer time series would be one undifferentiated block. Ranked bars answer “by manufacturer” legibly; use the <em>Month</em> filter to move through time, and the table below for all 169.</p>
+    <div class="chart xtall" id="chKamTop"></div>
+  </div>
+
+  <div class="grid g-wide">
+    <div class="card">
+      <div class="hd"><h3 id="kamTblTitle">Manufacturers</h3>
+        <div class="acts"><span class="hint" id="kamTblMeta"></span></div></div>
+      <p class="sub" id="kamTblSub"></p>
+      <div class="tw scrollY" id="kamTblWrap"><table id="kamTbl"></table></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3>Contract state of the KAM cohort</h3></div>
+      <p class="sub">The gap between accrued and billable. Only APPROVED contracts are live today.</p>
+      <div class="chart short" id="chKamState"></div>
+      <div class="hd" style="margin-top:14px"><h3>Monthly charge tiers</h3></div>
+      <p class="sub">Contracted ₹/month across the cohort.</p>
+      <div class="tw" id="kamChargeWrap"><table id="kamChargeTbl"></table></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 5. RECALL ASSISTANCE ==================== -->
+<section class="tabpanel" id="p-recall" role="tabpanel" hidden>
+  <div class="tiles" id="recallTiles"></div>
+  <div id="recallNote"></div>
+
+  <div class="grid g2">
+    <div class="card">
+      <div class="hd"><h3>Total recall assistance fee by month</h3>
+        <div class="acts"><span class="hint" id="recallMonthHint"></span></div></div>
+      <p class="sub"><code>recall_assistance_fee</code> as reported on the corrected recall extract,
+        bucketed by each line's own <code>duration</code> month. Nothing here is recomputed — the
+        extract carries the money, and it reconciles to <code>chargeable_prn_qty × recall_charge_rs</code>
+        row-exact. Returned units and the effective ₹/unit are in the tooltip, on purpose: one measure,
+        one axis.</p>
+      <div class="chart tall" id="chRecallMonth"></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3>Units returned by month</h3>
+        <div class="acts"><span class="hint" id="recallQtyHint"></span></div></div>
+      <p class="sub"><code>prn_qty</code> per month, split by whether a recall-assistance contract rate
+        applied. The un-contracted band is the point of the chart: most returned units have no rate
+        behind them, so their fee is <em>unknown, not ₹0</em> — and quantity is not a proxy for money.</p>
+      <div class="chart tall" id="chRecallMonthQty"></div>
+      <div class="legend" id="lgRecallMonthQty"></div>
+    </div>
+  </div>
+
+  <div class="filters">
+    <label class="fld"><span>Month</span>
+      <select id="rMonth"><option value="">All months</option></select></label>
+    <label class="fld"><span>Charged</span>
+      <select id="rCharged">
+        <option value="all">All returned lines</option>
+        <option value="yes">Chargeable only (has contract rate)</option>
+        <option value="no">Returned, no contract rate</option>
+      </select></label>
+    <label class="fld grow"><span>Search item or manufacturer</span>
+      <input type="search" id="rSearch" placeholder="Filters every chart and table on this tab"></label>
+    <label class="fld"><span>Rows</span>
+      <select id="rLimit"><option>25</option><option selected>50</option><option>100</option><option>250</option></select></label>
+    <div class="spacer"></div>
+    <button class="btn" id="rCsv">↓ CSV</button>
+  </div>
+
+  <div class="card">
+    <div class="hd"><h3 id="recallQtyTitle">Items returned most — by quantity</h3>
+      <div class="acts"><span class="hint" id="recallQtyTopHint"></span></div></div>
+    <p class="sub" id="recallQtySub"></p>
+    <div class="chart xtall" id="chRecallItemQty"></div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <div class="hd"><h3 id="recallMfrTitle">Fee split by manufacturer</h3>
+        <div class="acts"><span class="hint" id="recallMfrHint"></span></div></div>
+      <p class="sub">Who the recall assistance fee is charged to — only manufacturers with a
+        recall-assistance clause can appear. Ranked by money, so this list is materially different
+        from the quantity ranking above.</p>
+      <div class="chart xtall" id="chRecallMfrFee"></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3 id="recallItemTitle">Fee split by item</h3>
+        <div class="acts"><span class="hint" id="recallItemHint"></span></div></div>
+      <p class="sub">The SKUs carrying the charge. Bar length is fee; the returned quantity behind each
+        one is in the tooltip and the table below.</p>
+      <div class="chart xtall" id="chRecallItemFee"></div>
+    </div>
+  </div>
+
+  <div class="grid g-wide">
+    <div class="card">
+      <div class="hd"><h3 id="recallMfrTblTitle">Manufacturers</h3>
+        <div class="acts"><span class="hint" id="recallMfrTblMeta"></span></div></div>
+      <p class="sub">Charged fee, returned quantity and the contractual ₹/unit behind it (fee-weighted
+        where a manufacturer spans more than one rate).</p>
+      <div class="tw scrollY" id="recallMfrTblWrap"><table id="recallMfrTbl"></table></div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3 id="recallItemTblTitle">Items</h3>
+        <div class="acts"><span class="hint" id="recallItemTblMeta"></span></div></div>
+      <p class="sub">One row per SKU. Sorted by fee; use the <em>Charged</em> filter to see the
+        returned-but-not-chargeable tail on its own.</p>
+      <div class="tw scrollY" id="recallItemTblWrap"><table id="recallItemTbl"></table></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="hd"><h3>Contractual ₹ per chargeable unit</h3>
+      <div class="acts"><span class="hint" id="recallRateHint"></span></div></div>
+    <p class="sub"><code>recall_charge_rs</code> as reported on each chargeable line — not derived from
+      the money. This is the audit: the fee is trustworthy precisely because it lands on the contractual
+      ₹5 / ₹2.50 rather than scattering, and because fee = rate × <code>chargeable_prn_qty</code> holds
+      row-exact. Unaffected by the filters above.</p>
+    <div class="chart short" id="chRecallRate"></div>
+  </div>
+</section>
+
+<!-- ==================== 6. CONTRACTS ==================== -->
+<section class="tabpanel" id="p-contracts" role="tabpanel">
+  <div class="tiles" id="conTiles"></div>
+
+  <!-- The clause meters are a tall, narrow list, so they sit in a narrow left
+       column and the charts that used to live in two rows below them stack in the
+       space alongside. Same content, roughly half the vertical scroll. -->
+  <div class="grid g-narrow">
+    <div class="card">
+      <div class="hd"><h3>Commercial clause adoption</h3></div>
+      <p class="sub"><span class="hint">% of all contracts with the clause on.</span> A clause left blank is <em>not set</em>, not declined — different commercial facts, counted separately. Modal negotiated value shown where the clause carries a term.</p>
+      <div class="meters" id="clauseMeters"></div>
+    </div>
+    <div class="stack">
+      <div class="card">
+        <div class="hd"><h3>Contract mix</h3></div>
+        <p class="sub">State and purchase type across the book.</p>
+        <div class="grid g2">
+          <div class="chart short" id="chConState"></div>
+          <div class="chart short" id="chConPurchase"></div>
+        </div>
+      </div>
+      <!-- Negotiated terms and Other dimensions each get the full width of this
+           column: both are ranked category bars whose labels are manufacturer- or
+           term-length strings, and at half width those labels truncated. -->
+      <div class="card">
+        <div class="hd"><h3>Negotiated term distribution</h3>
+          <div class="acts"><select id="conTermSel" style="max-width:170px"></select></div></div>
+        <p class="sub">Terms are negotiated to round numbers, so the distribution is the story — an average of them would be meaningless.</p>
+        <div class="chart" id="chConTerm" style="height:308px"></div>
+      </div>
+      <div class="card">
+        <div class="hd"><h3>Other dimensions</h3>
+          <div class="acts"><select id="conDimSel" style="max-width:180px"></select></div></div>
+        <p class="sub">Buying entity, margin basis, payout frequency and the rest.</p>
+        <div class="chart" id="chConDim" style="height:308px"></div>
+      </div>
+      <div class="card">
+        <div class="hd"><h3>Contracts executed per month</h3></div>
+        <p class="sub">Signing volume by state. Shows both how lumpy execution is and how little of it reaches APPROVED.</p>
+        <div class="chart" id="chConTimeline" style="height:264px"></div>
+        <div class="legend" id="lgConTimeline"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="filters">
+    <label class="fld grow"><span>Search manufacturer</span>
+      <input type="search" id="conSearch" placeholder="Type a manufacturer name"></label>
+    <label class="fld"><span>State</span><select id="conState"><option value="all">All states</option></select></label>
+    <label class="fld"><span>Purchase type</span><select id="conPurchase"><option value="all">All types</option></select></label>
+    <label class="fld"><span>Has clause</span>
+      <select id="conClause">
+        <option value="">Any</option>
+        <option value="kam">KAM support</option>
+        <option value="defect">Defective product penalty</option>
+        <option value="fill_rate">Fill-rate penalty</option>
+        <option value="recall">Recall assistance</option>
+        <option value="sp">SP benchmarking</option>
+        <option value="ads">Minimum ads spend</option>
+      </select></label>
+    <label class="fld"><span>Sort</span>
+      <select id="conSort">
+        <option value="updated">Updated ↓</option>
+        <option value="executed">Executed ↓</option>
+        <option value="executed_asc">Executed ↑</option>
+        <option value="clauses">Clauses ↓</option>
+        <option value="clauses_asc">Clauses ↑</option>
+        <option value="kam">KAM charge ↓</option>
+        <option value="mfr">Manufacturer A–Z</option>
+      </select></label>
+    <div class="spacer"></div>
+    <button class="btn" id="conCsv">↓ CSV</button>
+  </div>
+
+  <div class="card">
+    <div class="hd"><h3>Contract details</h3>
+      <div class="acts"><span class="hint" id="conTblMeta"></span></div></div>
+    <p class="sub">Click a row for the full term sheet.</p>
+    <div class="tw scrollY" id="conTblWrap"><table id="conTbl"></table></div>
+  </div>
+</section>
+
+<!-- ==================== 6. DATA ==================== -->
+<section class="tabpanel" id="p-data" role="tabpanel" hidden>
+  <div class="card" style="margin-bottom:16px">
+    <div class="hd"><h3>Data health</h3></div>
+    <p class="sub">Every caveat the build raised. These are not cosmetic — each one changes how a number on this dashboard should be read.</p>
+    <div id="notesList"></div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <div class="hd"><h3>How each fee is calculated</h3></div>
+      <p class="sub">The definitions behind every figure here.</p>
+      <div class="defs">
+        <div class="def"><div class="t">Satellite fee</div><div class="d">
+          <code>sat_fee_applicable</code> = <code>fee_amt</code> (per-unit rate) × <code>net_qty_sold</code>.
+          Verified row-exact on all 86.2M rows of the extract. <code>fee_amt</code> alone is a rate — summing it is meaningless.</div></div>
+        <div class="def"><div class="t">Satellite fee coverage</div><div class="d">
+          Two monthly extracts, one folder per month: <b>June 2026</b> (30/30 days, complete) and
+          <b>July 2026</b> (30 of 31 days, and 30 July itself carries only 67% of a median day).
+          July is therefore <b>understated</b> and is not comparable like-for-like against June —
+          nothing is scaled up to hide the gap. Each month is bucketed by its own
+          <code>insert_ds_ist</code>, never by a folder name, and the build errors if a month is
+          found in more than one folder.</div></div>
+        <div class="def"><div class="t">Satellite city</div><div class="d">
+          A city on the master list (<code>satellite_cities_recovered.parquet</code>), which carries a
+          break-even minimum distance in km. The fee extract is <b>not</b> pre-filtered to this list, so
+          every satellite view here defaults to “satellite only”.</div></div>
+        <div class="def"><div class="t">Defect fee</div><div class="d">
+          ₹50 × <code>bad_returns_qty</code>, recomputed from quantity rather than read from the extract’s
+          <code>penalty</code> column, so the rate is explicit. The build reconciles the two and flags any drift.</div></div>
+        <div class="def"><div class="t">Defect failure modes</div><div class="d">
+          The five buckets in the defects executive summary (<em>handling · product quality · fulfilment ·
+          listing · authenticity</em>) are an <b>editorial grouping</b> of the extract’s 14 raw
+          <code>complaint_type</code> values, defined in <code>DEFECT_BUCKETS</code> in <code>app.py</code>.
+          They are not a column in the data, and the per-type chart on that tab remains the source of truth.
+          <code>COMPLAINT_DAMAGED_ITEM</code> is also visibly a catch-all — its most common phrase is
+          “not working” — so the handling share is an <b>upper bound</b>.</div></div>
+        <div class="def"><div class="t">City coordinates (map)</div><div class="d">
+          From <b>GeoNames</b> (<code>IN</code> populated places), matched on the master-list name with the
+          parenthesised state as disambiguator, preferring the administrative seat then the largest
+          population. Five spellings GeoNames does not carry (Davanagere, Kotdwar, Rajnandgaon, Sundar
+          Nagar, Tarn Taran Sahib) go through a hand-checked alias table — never a fuzzy match, because a
+          wrong dot is worse than a missing one. All 227 match; any that ever fail are named on the map
+          rather than dropped. Outline: India state boundaries dissolved from district polygons and
+          simplified to 61 KB. Boundaries are for orientation only, not an authoritative
+          depiction.</div></div>
+        <div class="def"><div class="t">KAM fee</div><div class="d">
+          <code>kam_charges</code> accrued once per calendar month from the month of <code>effective_date</code>,
+          for contracts with <code>kam_support = Yes</code>. All are valid-until-cancelled, so accrual has no end date.</div></div>
+        <div class="def"><div class="t">Recall assistance fee</div><div class="d">
+          <code>recall_assistance_fee</code> taken <b>as reported</b> on the corrected recall extract, which
+          carries the money per month × manufacturer × item. It is also the one fee here that <i>reconciles</i>:
+          <code>recall_assistance_fee = chargeable_prn_qty × recall_charge_rs</code> holds row-exact on every
+          rated line, and the build fails loudly if that ever stops being true.
+          <code>prn_qty</code> is everything returned; <code>chargeable_prn_qty</code> is the slice with a
+          contract rate behind it. A line with no <code>contract_id</code> has <b>no knowable fee</b> — it is
+          outside the chargeable set, not billed at ₹0, and about half the lines are in that state.
+          Each line is bucketed by its own <code>duration</code> column, never by a filename, and deduped on
+          (duration, manufacturer, item) so a re-pulled part cannot double-count.
+          <b>Supersedes the <code>BCPL_RTV_Claim</code> CSV drop</b>, which applied a recall
+          fee to returns from all 5,407 returning manufacturers with no check that a recall-assistance clause
+          existed (₹5.66M). Joined to contracts, 260 manufacturers are chargeable and the figure is ₹1.21M.</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="hd"><h3>Source files</h3></div>
+      <p class="sub">Exactly which downloads produced the numbers on screen.</p>
+      <div class="tw scrollY" style="max-height:400px"><table id="filesTbl"></table></div>
+      <p class="hint" id="buildMeta" style="margin-top:12px"></p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="dhd">
+    <div class="t"><h3 id="drawerTitle">—</h3><p id="drawerSub"></p></div>
+    <button class="btn sm" id="drawerClose">✕ Close</button>
+  </div>
+  <div class="db" id="drawerBody"></div>
+</aside>
+
+<script>
+"use strict";
+/* ==========================================================================
+   Palette access. Series colours are read from CSS custom properties so the
+   charts follow the theme toggle from one source of truth. Slots are assigned
+   in fixed order and NEVER cycled: past 8 entities the caller folds the tail
+   into "Other" (SERIES_OTHER) rather than generating a 9th hue.
+   ========================================================================== */
+const CSSVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const SERIES = () => ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'].map(CSSVar);
+const RAMP   = () => ['--q1','--q2','--q3','--q4','--q5','--q6','--q7'].map(CSSVar);
+const SERIES_OTHER = () => CSSVar('--series-other');
+const T = () => ({
+  s1: CSSVar('--s1'), s2: CSSVar('--s2'), text1: CSSVar('--text-1'),
+  text2: CSSVar('--text-2'), muted: CSSVar('--muted'), grid: CSSVar('--grid'),
+  axis: CSSVar('--axis'), surface: CSSVar('--surface-1'), sunken: CSSVar('--sunken'),
+  critical: CSSVar('--critical'), warning: CSSVar('--warning'), good: CSSVar('--good'),
+});
+
+/* Stable colour-by-entity: once a name has a slot it keeps it, so a filter that
+   drops series never repaints the survivors. */
+const _slots = new Map();
+function slotFor(key, order) {
+  if (key === 'Other' || key === 'other') return SERIES_OTHER();
+  if (!_slots.has(key)) _slots.set(key, _slots.size);
+  const i = order != null ? order : _slots.get(key);
+  const s = SERIES();
+  return i < s.length ? s[i] : SERIES_OTHER();
+}
+
+/* ---------- formatting ---------- */
+// Indian money conventions: this is an internal INR dashboard, so crore/lakh
+// read correctly and 10-digit rupee strings do not.
+function inr(v) {
+  if (v == null || isNaN(v)) return '—';
+  const n = Math.abs(v), s = v < 0 ? '-' : '';
+  if (n >= 1e7) return s + '₹' + (n / 1e7).toFixed(n >= 1e8 ? 1 : 2) + ' Cr';
+  if (n >= 1e5) return s + '₹' + (n / 1e5).toFixed(n >= 1e6 ? 1 : 2) + ' L';
+  if (n >= 1e3) return s + '₹' + Math.round(n).toLocaleString('en-IN');
+  return s + '₹' + (Math.round(n * 100) / 100).toLocaleString('en-IN');
+}
+function inrFull(v) {
+  return v == null || isNaN(v) ? '—'
+    : '₹' + Math.round(v).toLocaleString('en-IN');
+}
+function num(v, d) {
+  if (v == null || isNaN(v)) return '—';
+  return Number(v).toLocaleString('en-IN', {maximumFractionDigits: d == null ? 0 : d});
+}
+function compact(v) {
+  if (v == null || isNaN(v)) return '—';
+  const n = Math.abs(v);
+  if (n >= 1e7) return (v / 1e7).toFixed(1) + 'Cr';
+  if (n >= 1e5) return (v / 1e5).toFixed(1) + 'L';
+  if (n >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return num(v);
+}
+const pct = (v, d) => v == null || isNaN(v) ? '—' : Number(v).toFixed(d == null ? 1 : d) + '%';
+const esc = s => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+const clip = (s, n) => { s = String(s == null ? '' : s);
+  return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+// Complaint types arrive as COMPLAINT_DAMAGED_ITEM; humanise for display only.
+const humanType = s => String(s || '').replace(/^COMPLAINT_/, '').replace(/_/g, ' ')
+  .toLowerCase().replace(/^./, c => c.toUpperCase());
+const dayLabel = d => { const p = String(d || '').split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] : d; };
+// Contract states are long enough to be ellipsised inside a narrow badge, which
+// reads as a bug. Shorten for the chip; the full value stays in the title.
+const SHORT_STATE = {'PENDING APPROVAL': 'PENDING', 'APPROVED': 'APPROVED',
+  'DRAFT': 'DRAFT', 'EXPIRED': 'EXPIRED'};
+function stateBadge(v) {
+  if (!v) return '<span class="badge off">—</span>';
+  const cls = v === 'APPROVED' ? 'on' : v === 'EXPIRED' ? 'crit' : 'warn';
+  const ic = v === 'APPROVED' ? '<span class="ic">✓</span>' : '';
+  return `<span class="badge ${cls}" title="${esc(v)}">${ic}${esc(SHORT_STATE[v] || v)}</span>`;
+}
+const monthLabel = m => {
+  const p = String(m || '').split('-'); if (p.length < 2) return m;
+  const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return MO[+p[1] - 1] + " '" + p[0].slice(2);
+};
+
+/* ---------- fetch ---------- */
+/* Endpoints that honour the global period. `/api/defects/terms` is deliberately
+   absent: the keyword cloud is tokenised at build time and has no day grain, so
+   it cannot be period-filtered -- the tab says so rather than silently returning
+   full-window terms as if they were filtered. Contracts is absent by design. */
+const PERIOD_API = /^\/api\/(cities|sat|kam|recall|defects)\b/;
+function periodParams(path) {
+  if (!PERIOD_API.test(path) || path.startsWith('/api/defects/terms')) return {};
+  const p = (typeof S === 'undefined' ? null : S.period) || {};
+  if (!p.frm && !p.to) return {};
+  return {frm: p.frm || '', to: p.to || ''};
+}
+async function api(path, params) {
+  const u = new URL(path, location.origin);
+  Object.entries(Object.assign({}, params || {}, periodParams(path))).forEach(([k, v]) => {
+    if (v !== '' && v != null) u.searchParams.set(k, v);
+  });
+  const r = await fetch(u);
+  if (!r.ok) {
+    let d = r.statusText;
+    try { d = (await r.json()).detail || d; } catch (e) {}
+    throw new Error(d);
+  }
+  return r.json();
+}
+function dl(path, params) {
+  const u = new URL(path, location.origin);
+  // A CSV export must carry the same period as the screen it was taken from.
+  Object.entries(Object.assign({}, params || {}, periodParams(path))).forEach(([k, v]) => {
+    if (v !== '' && v != null) u.searchParams.set(k, v);
+  });
+  u.searchParams.set('fmt', 'csv');
+  window.location = u.toString();
+}
+const $ = id => document.getElementById(id);
+/* Reset a <select> to its first, static option. Loaders re-run whenever the
+   global period changes, so appending options has to be idempotent or every
+   change would duplicate the list. */
+function resetSel(el, keep) {
+  if (!el) return el;
+  while (el.options.length > (keep == null ? 1 : keep)) el.remove(el.options.length - 1);
+  return el;
+}
+function busy(el, on) { if (el) el.classList.toggle('loading', !!on); }
+function debounce(fn, ms) {
+  let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms || 260); };
+}
+
+/* ==========================================================================
+   Chart helpers.
+
+   Mark specs applied everywhere: bars <=24px with a 4px rounded data-end square
+   at the baseline, 2px lines, >=8px markers with a 2px surface ring, hairline
+   solid grid (never dashed), axis labels in text tokens (never a series hue),
+   and grid.containLabel so an axis label can never be clipped by the container.
+   ========================================================================== */
+const CHARTS = new Map();
+function chart(id) {
+  const el = $(id);
+  if (!el) return null;
+  let c = CHARTS.get(id);
+  if (!c || c.isDisposed()) { c = echarts.init(el, null, {renderer: 'canvas'}); CHARTS.set(id, c); }
+  return c;
+}
+function baseOpt() {
+  const t = T();
+  return {
+    animationDuration: 340,
+    textStyle: {fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif', color: t.text2},
+    grid: {left: 6, right: 14, top: 12, bottom: 4, containLabel: true},
+    tooltip: {
+      trigger: 'item', confine: true, borderWidth: 1,
+      borderColor: t.axis, backgroundColor: t.surface,
+      textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'box-shadow:0 3px 14px rgba(11,11,11,.13);border-radius:8px;max-width:300px;white-space:normal;',
+    },
+  };
+}
+/* Axis presets.
+
+   These take the overrides as an ARGUMENT and apply them last, on purpose.
+   Writing `Object.assign({type:'value', axisLabel:{formatter}}, axisY(t))` puts
+   the preset second, so the preset's axisLabel replaces the caller's whole
+   axisLabel object and the formatter vanishes -- axis ticks then render as raw
+   `18000000` instead of `1.8Cr`. Nested objects are merged key-wise here so a
+   caller can override just `formatter` without restating colour and size.
+
+   valAxis = the measure axis (carries the hairline gridlines).
+   catAxis = the category axis (carries the baseline, no gridlines). */
+function mergeAxis(base, o) {
+  const out = Object.assign({}, base, o || {});
+  for (const k of ['axisLabel', 'axisLine', 'axisTick', 'splitLine', 'nameTextStyle']) {
+    if (o && o[k] && base[k]) out[k] = Object.assign({}, base[k], o[k]);
+  }
+  return out;
+}
+const valAxis = (t, o) => mergeAxis({
+  type: 'value',
+  axisLine: {show: false}, axisTick: {show: false},
+  axisLabel: {color: t.muted, fontSize: 11},
+  nameTextStyle: {color: t.muted, fontSize: 10},
+  // Hairline, solid, one step off the surface. Never dashed.
+  splitLine: {lineStyle: {color: t.grid, width: 1, type: 'solid'}},
+}, o);
+const catAxis = (t, o) => mergeAxis({
+  type: 'category',
+  axisLine: {show: false},
+  axisTick: {show: false},
+  axisLabel: {color: t.text2, fontSize: 11, hideOverlap: true},
+  nameTextStyle: {color: t.muted, fontSize: 10},
+  splitLine: {show: false},
+}, o);
+// Time/ordinal axis along the bottom keeps a visible baseline rule.
+const timeAxis = (t, o) => catAxis(t, mergeAxis({
+  axisLine: {show: true, lineStyle: {color: t.axis, width: 1}},
+  axisLabel: {color: t.muted},
+}, o));
+const money = v => compact(v);
+/* 4px rounded data-end, square at the baseline. */
+const CAP_V = [4, 4, 0, 0];   // vertical bars: round the top
+const CAP_H = [0, 4, 4, 0];   // horizontal bars: round the right
+
+function legendHTML(items) {
+  return items.map(i =>
+    `<span class="it${i.line ? ' line' : ''}"><span class="sw" style="background:${i.color}"></span>${esc(i.label)}</span>`
+  ).join('');
+}
+function setLegend(id, items) { const e = $(id); if (e) e.innerHTML = legendHTML(items); }
+
+/* Resize: ECharts canvases do not reflow on their own. One observer per chart
+   container keeps every card responsive without a window-level resize storm. */
+const RO = new ResizeObserver(entries => {
+  for (const e of entries) {
+    const c = CHARTS.get(e.target.id);
+    if (c && !c.isDisposed() && e.contentRect.width > 0) c.resize();
+  }
+});
+function watch(id) { const el = $(id); if (el) RO.observe(el); }
+
+/* ---------- table helper ----------
+   cols: [{k, h, w, num, fmt, cls, title}] -- w is a CSS width on a
+   table-layout:fixed table, which is what keeps wide tables inside the viewport. */
+function renderTable(tblId, cols, rows, opts) {
+  const t = $(tblId);
+  if (!t) return;
+  opts = opts || {};
+  if (!rows || !rows.length) {
+    t.innerHTML = `<tbody><tr><td class="empty">${esc(opts.empty || 'No rows match these filters.')}</td></tr></tbody>`;
+    return;
+  }
+  // cls goes on BOTH th and td -- the responsive hn/hn2 rules have to hide the
+  // header cell alongside its column, or the header row goes out of alignment.
+  const head = cols.map(c =>
+    `<th class="${c.num ? 'num' : ''}${c.cls ? ' ' + c.cls : ''}" ${
+      c.w ? `style="width:${c.w}"` : ''}>${esc(c.h)}</th>`).join('');
+  const body = rows.map((r, i) => {
+    const tds = cols.map(c => {
+      const raw = r[c.k];
+      const html = c.fmt ? c.fmt(raw, r, i) : esc(raw == null ? '—' : raw);
+      const ttl = c.title ? ` title="${esc(c.title(raw, r))}"` : '';
+      return `<td class="${c.num ? 'num' : ''}${c.cls ? ' ' + c.cls : ''}"${ttl}>${html}</td>`;
+    }).join('');
+    const attrs = opts.rowAttrs ? opts.rowAttrs(r, i) : '';
+    return `<tr class="${opts.click ? 'clickable' : ''}" ${attrs}>${tds}</tr>`;
+  }).join('');
+  t.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+  if (opts.click) {
+    t.querySelectorAll('tbody tr').forEach((tr, i) => {
+      tr.onclick = () => opts.click(rows[i], i);
+    });
+  }
+}
+/* Behind-the-number magnitude bar. Redundant encoding only -- the value is
+   always present as text, so nothing is gated on seeing the bar. */
+function barFmt(fmt, maxGetter) {
+  return (v, r) => {
+    const max = maxGetter();
+    const w = max > 0 ? Math.max(0, Math.min(100, (v / max) * 100)) : 0;
+    return `<span class="fillbar" style="width:${w}%"></span><span>${fmt(v)}</span>`;
+  };
+}
+
+function tile(lab, val, sub, cls) {
+  return `<div class="tile ${cls || ''}"><span class="lab">${esc(lab)}</span>
+    <div class="val">${val}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
+}
+function noteHTML(level, label, text) {
+  const ic = level === 'error' ? '⛔' : level === 'warn' ? '⚠' : 'ⓘ';
+  return `<div class="note ${esc(level)}"><span class="ic" aria-hidden="true">${ic}</span>
+    <div class="bd">${label ? `<span class="lbl">${esc(label)}:</span>` : ''}${text}</div></div>`;
+}
+
+/* ==========================================================================
+   State
+   ========================================================================== */
+const S = {
+  meta: null, tab: 'contracts', loaded: {},
+  city: {q: '', scope: 'sat', band: 'all', billing: 'all', sort: 'distance_desc',
+         mapMeasure: 'fee'},
+  // drill holds the satellite drilldown stack: each entry pins one dimension.
+  sat: {scope: 'sat', bucket: 'all', ptype: 'all', state: 'all',
+        dim: 'city', search: '', sort: 'fee', limit: 50,
+        drill: {city: '', cityLabel: '', mfr: '', mfrLabel: '', item: '', itemLabel: ''}},
+  def: {ctype: '', search: '', limit: 50, ngram: 1, cloudTable: false},
+  kam: {state: 'all', month: '', search: ''},
+  recall: {month: '', charged: 'all', search: '', limit: 50},
+  con: {q: '', state: 'all', purchase: 'all', clause: '', sort: 'updated', dim: '', term: ''},
+  // Global day range. '' = open end. Never applied to the Contracts tab.
+  period: {frm: '', to: ''},
+  coverage: null,
+};
+
+// Tabs the period applies to; also the set of loaders re-run when it changes.
+const PERIOD_TABS = ['cities', 'satellite', 'defects', 'kam', 'recall'];
+// Human labels for the coverage strip.
+const COV_LABEL = {satellite: 'satellite fees', defects: 'defects',
+                   kam: 'KAM', recall: 'recall'};
+// Which tab reads which coverage band (satellite cities are fed by the fee data).
+const TAB_SOURCE = {cities: 'satellite', satellite: 'satellite', defects: 'defects',
+                    kam: 'kam', recall: 'recall'};
+
+/* ==========================================================================
+   Boot
+   ========================================================================== */
+async function boot() {
+  // Theme first, so the first chart paint already has the right tokens.
+  const saved = localStorage.getItem('feeTheme');
+  if (saved) document.documentElement.dataset.theme = saved;
+  else document.documentElement.removeAttribute('data-theme');
+  $('themeBtn').onclick = () => {
+    const cur = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    const next = cur === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('feeTheme', next);
+    // Charts bake colours at render time, so re-render the active tab.
+    CHARTS.forEach(c => c.dispose());
+    CHARTS.clear();
+    S.loaded = {};
+    show(S.tab);
+  };
+
+  try {
+    S.meta = await api('/api/meta');
+  } catch (e) {
+    document.querySelector('main').innerHTML =
+      noteHTML('error', 'Cannot load', esc(e.message) +
+        ' — run <code>python build_db.py</code> in fees_dashboard/, then reload.');
+    return;
+  }
+  const m = S.meta.meta || {}, k = S.meta.kpis || {}, x = S.meta.extra || {};
+  $('provenance').textContent =
+    `Built ${m.built_at || '—'} · satellite ${k.sat_first_day || '?'} → ${k.sat_last_day || '?'}`
+    + ` · defects ${x.def_first_day || '?'} → ${x.def_last_day || '?'} · ${S.meta.db_mb} MB rollup`;
+  $('provenance').title = `Source: ${m.data_dir || ''}`;
+  $('nCities').textContent = num(k.master_cities);
+  $('nSat').textContent = inr(k.sat_fee_onlist);
+  $('nDef').textContent = inr(+x.def_fee || 0);
+  $('nKam').textContent = inr(+x.kam_fee_to_date || 0);
+  $('nRecall').textContent = inr(+x.rtv_fee || 0);
+  $('nCon').textContent = num(+x.con_contracts || 0);
+  const nErr = (S.meta.notes || []).filter(n => n.level !== 'info').length;
+  if (nErr) $('nNotes').textContent = '⚠ ' + nErr;
+
+  // Disable tabs whose rollups are absent rather than letting them 500.
+  Object.entries(S.meta.tabs || {}).forEach(([t, ok]) => {
+    if (!ok) {
+      const b = document.querySelector(`nav.tabs button[data-tab="${t}"]`);
+      if (b) { b.disabled = true; b.style.opacity = .4; b.title = 'No data for this section'; }
+    }
+  });
+
+  $('tabs').addEventListener('click', e => {
+    const b = e.target.closest('button[data-tab]');
+    if (b && !b.disabled) show(b.dataset.tab);
+  });
+
+  // Restore the period before coverage renders, so the strike-throughs and the
+  // pressed preset are right on the first paint.
+  try {
+    const saved = JSON.parse(localStorage.getItem('feePeriod') || '{}');
+    S.period.frm = saved.frm || '';
+    S.period.to = saved.to || '';
+  } catch (e) {}
+  $('pFrom').onchange = () => setPeriod($('pFrom').value, S.period.to);
+  $('pTo').onchange = () => setPeriod(S.period.frm, $('pTo').value);
+  $('pClear').onclick = () => setPeriod('', '');
+  await loadCoverage();
+
+  wire();
+  show(location.hash.slice(1) || 'contracts');
+}
+
+/* ==========================================================================
+   Global period
+   ========================================================================== */
+
+/* Does the active period actually reach any month this source HAS rows for?
+   Tested against the explicit month list rather than the band ends, because a
+   source can be gappy -- defects covers Apr-May and late Jun with nothing between,
+   so a period of "May 2026" overlaps the band but hits almost no rows. 'YYYY-MM'
+   strings compare correctly; '' means an open end. */
+function reaches(band) {
+  const {frm, to} = S.period;
+  const ms = (band && band.months) || [];
+  if (!ms.length) return true;
+  return ms.some(m => (!frm || m >= frm.slice(0, 7)) && (!to || m <= to.slice(0, 7)));
+}
+
+function periodOn() { return !!(S.period.frm || S.period.to); }
+
+/* Months a source has rows for but not a whole month of them, restricted to what
+   the current period actually selects. Two months on a tab is an invitation to
+   read one against the other, and that read is wrong when one of them is short --
+   so the shortfall is stated next to the total, not only on the Data tab. */
+function partialMonths(src) {
+  const {frm, to} = S.period;
+  return (((S.coverage && S.coverage.partial) || {})[src] || []).filter(p =>
+    (!frm || p.month >= frm.slice(0, 7)) && (!to || p.month <= to.slice(0, 7)));
+}
+
+function partialMonthNote(src) {
+  const ps = partialMonths(src);
+  if (!ps.length) return '';
+  const bits = ps.map(p => {
+    const why = [];
+    if (p.cal_days > p.days) why.push(`${p.cal_days - p.days} day(s) missing`);
+    if (p.last_day_frac < 0.8)
+      why.push(`${p.last_day} only ${Math.round(p.last_day_frac * 100)}% loaded`);
+    return `<b>${esc(monthLabel(p.month))}</b> (${esc(why.join(', '))})`;
+  });
+  return noteHTML('warn', ps.length > 1 ? 'Incomplete months' : 'Incomplete month',
+    `${bits.join(' and ')} — the extract stops mid-month, so ${ps.length > 1
+      ? 'those months are' : 'that month is'} understated. `
+    + `Do not compare ${ps.length > 1 ? 'them' : 'it'} like-for-like against a full `
+    + `month; the daily chart shows exactly where the data ends.`);
+}
+
+/* The band the active tab depends on, or null when the tab ignores the period. */
+function tabBand(tab) {
+  const src = TAB_SOURCE[tab];
+  return src ? ((S.coverage && S.coverage.tabs || {})[src] || null) : null;
+}
+
+function periodLabel() {
+  if (!periodOn()) return 'all months';
+  const f = S.period.frm ? monthLabel(S.period.frm) : 'start';
+  const t = S.period.to ? monthLabel(S.period.to) : 'latest';
+  return f === t ? f : `${f} → ${t}`;
+}
+
+/* A band reads as one month when it starts and ends in the same month, and says
+   so when it has holes rather than implying continuous coverage. */
+function bandLabel(b) {
+  const base = b.frm === b.to_ ? monthLabel(b.frm)
+                               : `${monthLabel(b.frm)}–${monthLabel(b.to_)}`;
+  return b.gaps ? `${base}*` : base;
+}
+function bandTitle(b) {
+  return ((b.months || []).map(monthLabel).join(', '))
+    + (b.gaps ? ' — not continuous' : '');
+}
+
+async function loadCoverage() {
+  try { S.coverage = await api('/api/period'); } catch (e) { S.coverage = null; }
+  const cov = S.coverage;
+  if (!cov) { $('periodBar').hidden = true; return; }
+  const f = $('pFrom'), t = $('pTo');
+  if (cov.min) { f.min = t.min = cov.min; }
+  if (cov.max) { f.max = t.max = cov.max; }
+
+  // Presets are generated from the real coverage, so every button lands on a
+  // window that actually contains data for at least one tab.
+  const pres = [{k: '', label: 'All dates', frm: '', to: ''}];
+  Object.entries(cov.tabs || {}).forEach(([src, b]) => {
+    if (b && b.frm) pres.push({k: src, label: COV_LABEL[src] || src,
+                               frm: b.frm, to: b.to_});
+  });
+  $('pPresets').innerHTML = pres.map((p, i) =>
+    `<button type="button" data-i="${i}" title="${esc(p.frm ? `${p.frm} → ${p.to}` : 'no period filter')}">`
+    + `${esc(p.label)}${p.frm ? ` <span style="opacity:.65">${esc(bandLabel({frm: p.frm, to_: p.to}))}</span>` : ''}</button>`).join('');
+  $('pPresets').onclick = e => {
+    const b = e.target.closest('button[data-i]');
+    if (!b) return;
+    const p = pres[+b.dataset.i];
+    setPeriod(p.frm, p.to);
+  };
+  PRESETS = pres;
+  renderPeriod();
+}
+let PRESETS = [];
+
+function setPeriod(frm, to) {
+  S.period.frm = frm || '';
+  S.period.to = to || '';
+  try { localStorage.setItem('feePeriod', JSON.stringify(S.period)); } catch (e) {}
+  renderPeriod();
+  // Only the period-aware tabs are invalidated. Contracts keeps its loaded flag,
+  // so its append-built selects are never rebuilt behind the user's back.
+  PERIOD_TABS.forEach(t => delete S.loaded[t]);
+  show(S.tab);
+}
+
+function renderPeriod() {
+  $('pFrom').value = S.period.frm || '';
+  $('pTo').value = S.period.to || '';
+  $('pClear').hidden = !periodOn();
+  (PRESETS || []).forEach((p, i) => {
+    const b = $('pPresets').querySelector(`button[data-i="${i}"]`);
+    if (b) b.setAttribute('aria-pressed',
+      String((p.frm || '') === S.period.frm && (p.to || '') === S.period.to));
+  });
+
+  // The nav badges are whole-window totals. Leaving them next to a filtered tab
+  // would put a number on screen that contradicts the tab under it, so while a
+  // period is active they say so instead of quietly disagreeing.
+  Object.entries({cities: 'nCities', satellite: 'nSat', defects: 'nDef',
+                  kam: 'nKam', recall: 'nRecall'}).forEach(([_tab, id]) => {
+    const el = $(id);
+    if (!el) return;
+    if (el.dataset.full == null) el.dataset.full = el.textContent;
+    el.textContent = periodOn() ? 'filtered' : el.dataset.full;
+    el.title = periodOn()
+      ? `Whole window: ${el.dataset.full}. This tab is filtered to ${periodLabel()}.` : '';
+  });
+
+  // Coverage strip: each source's own window, struck through when the active
+  // period does not reach it.
+  const tabs = (S.coverage && S.coverage.tabs) || {};
+  $('pCoverage').innerHTML = Object.entries(tabs).map(([src, b]) => {
+    if (!b || !b.frm) return '';
+    const hit = reaches(b);
+    return `<span class="${hit ? '' : 'out'}" title="${esc(bandTitle(b))}">`
+      + `<b>${esc(COV_LABEL[src] || src)}</b> ${esc(bandLabel(b))}`
+      + `${hit ? '' : ' (none in period)'}</span>`;
+  }).join('');
+
+  // In-tab banner: an empty tab has to say why, or a legitimate "no rows here"
+  // reads as a broken dashboard.
+  const band = tabBand(S.tab);
+  let warn = '';
+  if (periodOn() && band && !reaches(band)) {
+    warn = noteHTML('warn', 'Nothing on this tab falls in the selected period',
+      `This tab's data covers <b>${esc(bandTitle(band))}</b>, and the period is `
+      + `<b>${esc(periodLabel())}</b>. The figures below are empty because there is `
+      + `nothing to show, not because the fee was zero. `
+      + `The sources on this dashboard do not share a window — use the coverage strip above, `
+      + `a preset, or <b>Clear period</b>.`);
+  } else if (periodOn() && S.tab === 'kam') {
+    warn = noteHTML('info', 'Contract-state mix is not period-filtered',
+      `The monthly accrual and the per-manufacturer figures honour `
+      + `<b>${esc(periodLabel())}</b>. The <em>contract state mix</em> does not: a `
+      + `contract's state is its state <b>today</b>, not a fact about a month, so it is `
+      + `the same current-state snapshot the Contracts tab shows.`);
+  } else if (periodOn() && S.tab === 'defects') {
+    warn = noteHTML('info', 'Keyword cloud is not period-filtered',
+      `Every figure on this tab honours <b>${esc(periodLabel())}</b> except the keyword cloud: `
+      + `terms are mined from the free-text remarks at build time and carry no date, so the `
+      + `cloud always covers the full defect window.`);
+  }
+  // A month is the smallest slice the data supports; the picker is month-only so
+  // this is stated once, in the bar, rather than implied.
+  $('periodWarn').innerHTML = warn;
+}
+
+function show(tab) {
+  if (!document.querySelector(`#p-${tab}`)) tab = 'contracts';
+  S.tab = tab;
+  location.hash = tab;
+  // The period bar is meaningless on Contracts (current-state snapshot) and on
+  // Data (build provenance), so it is hidden rather than shown-but-inert.
+  $('periodBar').hidden = !PERIOD_TABS.includes(tab);
+  if (S.coverage) renderPeriod();   // the in-tab banner is per-tab
+  document.querySelectorAll('nav.tabs button').forEach(b =>
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  document.querySelectorAll('.tabpanel').forEach(p => { p.hidden = p.id !== 'p-' + tab; });
+  if (!S.loaded[tab]) { S.loaded[tab] = true; ({
+    cities: loadCities, satellite: loadSat, defects: loadDefects,
+    kam: loadKam, recall: loadRecall, contracts: loadContracts, data: loadData,
+  }[tab] || (() => {}))(); }
+  // Charts sized while their panel was hidden measured 0 wide; resize on reveal.
+  requestAnimationFrame(() => CHARTS.forEach(c => !c.isDisposed() && c.resize()));
+}
+
+/* ==========================================================================
+   1. SATELLITE CITIES
+   ========================================================================== */
+async function loadCities() {
+  const k = S.meta.kpis || {};
+  const v = await api('/api/cities/validation');
+  const t = v.totals || {};
+  $('cityTiles').innerHTML = [
+    tile('Satellite cities on the master list', num(k.master_cities),
+         `break-even ${num(k.min_distance)}–${num(k.max_distance)} km · avg ${num(k.avg_distance)} km`, 'accent'),
+    tile('Recorded fee this period', num(t.master_billing),
+         `${num(t.master_idle)} on the list billed nothing`),
+    tile('Fee on satellite cities', inr(t.fee_on_list),
+         `${num(t.qty_on_list)} units`, 'hero'),
+    tile('Cities not on the master list', num(t.offlist_cities),
+         `carrying ${inr(t.fee_off_list)}`),
+    tile('Share of fee off the list', pct(t.pct_off_list),
+         `of ${inr(t.fee_total)} charged in total`),
+  ].join('');
+
+  // Requirement 7, stated plainly and up front.
+  let html = '';
+  if (t.offlist_cities) {
+    const top = (v.off_list || []).slice(0, 6).map(r => r.city).join(', ');
+    html += noteHTML('error', 'Fee is being charged outside the satellite list',
+      `<b>${num(t.offlist_cities)} cities</b> in the fee extract are not on the satellite master list, `
+      + `carrying <b>${inrFull(t.fee_off_list)}</b> — <b>${pct(t.pct_off_list)}</b> of the `
+      + `${inrFull(t.fee_total)} total. The largest are ${esc(top)}: metros with their own mother `
+      + `warehouses, which cannot be satellite by definition. The extract is not pre-filtered to `
+      + `satellite cities, so treat the <b>${inrFull(t.fee_on_list)}</b> on-list figure as the validated `
+      + `satellite fee and this as exposure to reconcile with the fee logic upstream.`);
+  }
+  if (t.master_idle) {
+    html += noteHTML('info', 'Idle satellite cities',
+      `${num(t.master_idle)} of ${num(t.master_cities)} master cities recorded no fee at all this period. `
+      + `Expected where no satellite outlet is live yet — filter <em>Billing: no fee this period</em> to list them.`);
+  }
+  $('cityValidation').innerHTML = html;
+
+  const bands = await api('/api/cities/bands', {scope: 'sat'});
+  drawCityBands(bands);
+  const sel = resetSel($('cBand'));
+  bands.forEach(b => sel.insertAdjacentHTML('beforeend',
+    `<option value="${esc(b.band)}">${esc(b.band)} (${b.cities})</option>`));
+  watch('chCityMap');
+  await loadCityMap();
+  await refreshCities();
+}
+
+/* ---------- the map ----------
+
+   Two static assets, both map geometry rather than fee facts, so they live in
+   static/ and are fetched once and cached on S: the dissolved state outline
+   (india.geojson, 61 KB — the raw district file was 4.0 MB) and the city
+   coordinates (city_coords.json, keyed on the same city_key the rollups use).
+
+   Coordinates come from GeoNames, matched on the master-list name with the
+   parenthesised state as the disambiguator ('Aurangabad (Bihar)' is not
+   'Aurangabad (Maharashtra)'). Five master spellings GeoNames does not carry are
+   resolved through a hand-checked alias table, not a fuzzy match — a wrong dot is
+   worse than an absent one. All 227 match; anything that ever fails to is
+   reported in the sub-line instead of quietly not being drawn. */
+let CITYMAP = null;
+
+async function loadCityMap() {
+  if (!CITYMAP) {
+    const [geo, coords] = await Promise.all([
+      fetch('static/india.geojson').then(r => r.json()),
+      fetch('static/city_coords.json').then(r => r.json()),
+    ]);
+    echarts.registerMap('india', geo);
+    CITYMAP = {coords};
+  }
+  await refreshCityMap();
+}
+
+async function refreshCityMap() {
+  if (!CITYMAP) return;
+  const d = await api('/api/cities/map');   // api() applies the period itself
+  CITYMAP.rows = d.rows || [];
+  drawCityMap();
+}
+
+function drawCityMap() {
+  if (!CITYMAP || !CITYMAP.rows) return;
+  const t = T(), coords = CITYMAP.coords, measure = S.city.mapMeasure || 'fee';
+  const rows = CITYMAP.rows;
+
+  // A city with no coordinate is named, not dropped silently.
+  const placed = rows.filter(r => coords[r.city_key]);
+  const missing = rows.filter(r => !coords[r.city_key]).map(r => r.city);
+  $('cMapNote').innerHTML = missing.length
+    ? `<b>${missing.length} not placed</b> (no coordinate): ${esc(missing.slice(0, 8).join(', '))}`
+    : `All ${placed.length} placed.`;
+
+  // Area-proportional, so the eye compares area and not radius: symbolSize is a
+  // diameter, hence sqrt. Floor of 5px keeps the smallest city clickable.
+  const vals = placed.map(r => +r[measure] || 0);
+  const max = Math.max(1, ...vals);
+  const size = v => measure === 'none' ? 8
+    : 5 + 22 * Math.sqrt(Math.max(0, +v || 0) / max);
+
+  const pt = r => ({
+    name: r.city,
+    value: [coords[r.city_key][0], coords[r.city_key][1], +r[measure] || 0],
+    row: r,
+  });
+  const billing = placed.filter(r => r.has_fees);
+  const idle = placed.filter(r => !r.has_fees);
+  const cBill = t.s1, cIdle = t.muted;
+
+  chart('chCityMap').setOption(Object.assign(baseOpt(), {
+    tooltip: {
+      trigger: 'item', confine: true, borderWidth: 1, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'box-shadow:0 3px 14px rgba(11,11,11,.13);border-radius:8px;',
+      formatter: p => {
+        const r = p.data && p.data.row;
+        if (!r) return esc(p.name || '');
+        const st = coords[r.city_key][2];
+        return `<b>${esc(r.city)}</b>${st ? ' · ' + esc(st) : ''}<br>`
+          + `break-even ${num(r.distance_km, 1)} km · ${esc(r.band || '')}<br>`
+          + (r.has_fees
+            ? `${inrFull(r.fee)} · ${num(r.net_qty)} units<br>`
+              + `${num(r.mfrs)} manufacturers · ${num(r.items)} items`
+            : `<span style="color:${t.warning}">no fee recorded this period</span>`);
+      },
+    },
+    geo: {
+      map: 'india', roam: true, zoom: 1.16, center: [82.5, 22.5],
+      itemStyle: {areaColor: t.sunken, borderColor: t.axis, borderWidth: 1},
+      emphasis: {disabled: true},   // states are backdrop, not a data layer
+      // Keep the outline visually inert: it carries no measure, so it must not
+      // read as one.
+      silent: true,
+    },
+    series: [
+      {name: 'Billed this period', type: 'scatter', coordinateSystem: 'geo',
+       data: billing.map(pt), symbolSize: v => size(v[2]), z: 3,
+       itemStyle: {color: cBill, opacity: .82,
+         borderColor: t.surface, borderWidth: 2}},
+      // Hollow, so a city with no fee is still legible as a location rather than
+      // disappearing into the background.
+      {name: 'No fee this period', type: 'scatter', coordinateSystem: 'geo',
+       data: idle.map(pt), symbolSize: 7, z: 2,
+       itemStyle: {color: 'transparent', borderColor: cIdle, borderWidth: 1.5}},
+    ],
+  }), true);
+
+  const mLabel = {fee: 'fee', net_qty: 'units',
+                  distance_km: 'break-even distance', none: ''}[measure];
+  setLegend('lgCityMap', [
+    {label: `Billed this period (${billing.length})`
+       + (mLabel ? ` — dot area = ${mLabel}` : ''), color: cBill},
+    {label: `No fee this period (${idle.length})`, color: cIdle},
+  ]);
+}
+
+function drawCityBands(bands) {
+  const t = T(), ramp = RAMP();
+  // Ordered bands -> one blue ramp, starting at step 250 so the lightest step
+  // still clears 2:1 on the surface. Not categorical hues: these have a
+  // natural order, and not a value-ramp-on-nominal either.
+  const colAt = i => ramp[Math.min(ramp.length - 1, i + 1)];
+  const cats = bands.map(b => b.band);
+
+  const c1 = chart('chCityBand');
+  c1.setOption(Object.assign(baseOpt(), {
+    grid: {left: 12, right: 24, top: 8, bottom: 4, containLabel: true},
+    xAxis: valAxis(t, {name: 'cities', nameLocation: 'end',
+      nameTextStyle: {padding: [0, 0, 0, 4]}}),
+    yAxis: catAxis(t, {data: cats, inverse: true}),
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;',
+      formatter: p => { const b = bands[p.dataIndex];
+        return `<b>${esc(b.band)}</b><br>${num(b.cities)} cities · ${num(b.billing_cities)} billing`
+             + `<br>avg ${num(b.avg_distance)} km · ${inr(b.fee)}`; }},
+    series: [{
+      type: 'bar', barMaxWidth: 20, itemStyle: {borderRadius: CAP_H},
+      data: bands.map((b, i) => ({value: b.cities, itemStyle: {color: colAt(i)}})),
+      // Selective direct labels: the count at every tip, because there are only
+      // five bars and the number IS the point of this chart.
+      label: {show: true, position: 'right', color: t.text2, fontSize: 11,
+        formatter: p => num(p.value)},
+    }],
+  }), true);
+  setLegend('lgCityBand', bands.map((b, i) => ({label: b.band, color: colAt(i)})));
+
+  const c2 = chart('chBandFee');
+  c2.setOption(Object.assign(baseOpt(), {
+    grid: {left: 12, right: 24, top: 8, bottom: 4, containLabel: true},
+    xAxis: valAxis(t, {axisLabel: {formatter: money}}),
+    yAxis: catAxis(t, {data: cats, inverse: true}),
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;',
+      formatter: p => { const b = bands[p.dataIndex];
+        return `<b>${esc(b.band)}</b><br>${inrFull(b.fee)}<br>${num(b.net_qty)} units · ${num(b.cities)} cities`; }},
+    series: [{
+      type: 'bar', barMaxWidth: 20, itemStyle: {borderRadius: CAP_H},
+      data: bands.map((b, i) => ({value: b.fee, itemStyle: {color: colAt(i)}})),
+      label: {show: true, position: 'right', color: t.text2, fontSize: 11,
+        formatter: p => inr(p.value)},
+    }],
+  }), true);
+  watch('chCityBand'); watch('chBandFee');
+  $('bandScopeNote').textContent = 'satellite cities only';
+}
+
+async function refreshCities() {
+  const p = {q: S.city.q, scope: S.city.scope, band: S.city.band,
+             billing: S.city.billing, sort: S.city.sort, limit: 2000};
+  busy($('cityTblWrap'), true);
+  const d = await api('/api/cities', p);
+  busy($('cityTblWrap'), false);
+  const rows = d.rows || [], tot = d.total || {};
+  let maxFee = 0;
+  rows.forEach(r => { if (r.fee > maxFee) maxFee = r.fee; });
+
+  $('cityTblTitle').textContent =
+    S.city.scope === 'off' ? 'Cities in the fee extract but NOT on the satellite list'
+    : S.city.scope === 'all' ? 'All cities in the fee extract' : 'Satellite city list';
+  $('cityTblMeta').textContent =
+    `${num(tot.n)} cities · ${inr(tot.fee)} · ${num(tot.net_qty)} units`
+    + (rows.length < (tot.n || 0) ? ` · showing ${num(rows.length)}` : '');
+
+  renderTable('cityTbl', [
+    {k: 'city', h: 'City', w: '22%', title: (v, r) =>
+      v + (r.distance_km != null ? ` — break-even ${r.distance_km.toFixed(1)} km` : ' — not on the satellite master list'),
+     fmt: (v, r) => `<span class="rankdot" style="background:${
+        r.is_satellite ? CSSVar('--s1') : CSSVar('--series-other')}"></span>${esc(v)}`},
+    {k: 'distance_km', h: 'BE distance', w: '11%', num: true,
+     fmt: v => v == null ? '<span class="dim">not on list</span>' : num(v, 1) + ' km'},
+    {k: 'band', h: 'Band', w: '12%', fmt: v => `<span class="badge">${esc(v)}</span>`},
+    {k: 'fee', h: 'Satellite fee', w: '14%', num: true, cls: 'barcell',
+     fmt: barFmt(inr, () => maxFee), title: v => inrFull(v)},
+    {k: 'net_qty', h: 'Net units', w: '10%', num: true, fmt: v => num(v)},
+    {k: 'mfrs', h: 'Mfrs', w: '7%', num: true, fmt: v => num(v)},
+    {k: 'items', h: 'Items', w: '8%', num: true, cls: 'hn2', fmt: v => num(v)},
+    {k: 'outlets', h: 'Outlets', w: '8%', num: true, cls: 'hn', fmt: v => num(v)},
+    {k: 'days', h: 'Days', w: '8%', num: true, cls: 'hn',
+     fmt: (v, r) => r.has_fees ? num(v) : '<span class="dim">—</span>'},
+  ], rows, {empty: 'No city matches that search in this scope.'});
+}
+
+/* ==========================================================================
+   2. SATELLITE FEES
+   ========================================================================== */
+async function loadSat() {
+  const sp = await api('/api/sat/splits', {scope: 'all'});
+  const fill = (sel, rows, key) => {
+    const e = resetSel($(sel));
+    (rows || []).forEach(r => {
+      if (r.label == null) return;
+      e.insertAdjacentHTML('beforeend', `<option value="${esc(r.label)}">${esc(r.label)}</option>`);
+    });
+  };
+  fill('sBucket', sp.bucket); fill('sType', sp.product_type); fill('sState', sp.contract_state);
+  ['chSatTrend','chSatBucket','chSatPtype','chSatBar','chSatRate'].forEach(watch);
+  await refreshSat();
+}
+
+function satParams(extra) {
+  const d = S.sat.drill;
+  return Object.assign({
+    scope: S.sat.scope,
+    bucket: S.sat.bucket === 'all' ? '' : S.sat.bucket,
+    ptype: S.sat.ptype === 'all' ? '' : S.sat.ptype,
+    state: S.sat.state === 'all' ? '' : S.sat.state,
+    city: d.city, mfr: d.mfr, item: d.item,
+  }, extra || {});
+}
+
+async function refreshSat() {
+  renderCrumbs();
+  const p = satParams();
+  busy($('satByWrap'), true);
+  const [kp, tr, by, sp] = await Promise.all([
+    api('/api/sat/kpis', p),
+    api('/api/sat/trend', {scope: S.sat.scope, city: p.city, mfr: p.mfr}),
+    S.sat.dim === 'facility'
+      ? api('/api/sat/facilities', {scope: S.sat.scope, city: p.city,
+          search: S.sat.search, limit: S.sat.limit})
+      : api('/api/sat/by', satParams({dim: S.sat.dim, search: S.sat.search,
+          sort: S.sat.sort, limit: S.sat.limit})),
+    api('/api/sat/splits', {scope: S.sat.scope}),
+  ]);
+  busy($('satByWrap'), false);
+
+  const onList = kp.fee_on_list || 0, offList = kp.fee_off_list || 0;
+  $('satTiles').innerHTML = [
+    tile('Satellite fee — current slice', inr(kp.fee), scopeLabel(), 'hero accent'),
+    tile('Net units sold', num(kp.net_qty),
+         `${num(kp.qty_sold)} sold − ${num(kp.qty_returned)} returned`),
+    tile('Average fee per unit', kp.rate_per_unit == null ? '—' : '₹' + num(kp.rate_per_unit, 2),
+         'weighted across the slice'),
+    tile('Cities', num(kp.cities), `${num(kp.mfrs)} manufacturers`),
+    tile('Items charged', num(kp.items), `${compact(kp.n_rows)} fee rows`),
+  ].join('');
+
+  $('satScopeNote').innerHTML = partialMonthNote('satellite')
+    + (S.sat.scope === 'sat' && offList > 0
+    ? noteHTML('warn', 'Scoped to the satellite master list',
+        `The same filters over <em>all</em> cities would total ${inrFull(onList + offList)} — `
+        + `${inrFull(offList)} of that sits on ${'cities not on the satellite list'}. `
+        + `Switch <em>City scope</em> to see it.`)
+    : (S.sat.scope === 'off'
+        ? noteHTML('error', 'Off-list cities only',
+            `Everything below is fee charged on cities that are <b>not</b> satellite cities — `
+            + `${inrFull(offList)} in total. This view exists to size the problem, not to report revenue.`)
+        : ''));
+
+  drawSatTrend(tr);
+  drawSatSplits(sp);
+  drawSatBy(by);
+  refreshFacilities();
+}
+
+function scopeLabel() {
+  return S.sat.scope === 'sat' ? 'satellite cities only'
+    : S.sat.scope === 'off' ? 'off-list cities only' : 'all cities in the extract';
+}
+
+function renderCrumbs() {
+  const d = S.sat.drill, parts = [];
+  parts.push(`<span class="cb"><span class="k">scope</span><span class="t">${esc(scopeLabel())}</span></span>`);
+  const add = (k, key, label) => {
+    if (!d[key]) return;
+    parts.push('<span class="sep">›</span>');
+    parts.push(`<span class="cb"><span class="k">${k}</span><span class="t" title="${esc(d[label])}">${esc(d[label])}</span>`
+      + `<button data-clear="${key}" title="Remove this filter" aria-label="Remove ${esc(k)} filter">×</button></span>`);
+  };
+  add('city', 'city', 'cityLabel');
+  add('manufacturer', 'mfr', 'mfrLabel');
+  add('item', 'item', 'itemLabel');
+  const el = $('satCrumbs');
+  el.innerHTML = parts.join('');
+  el.querySelectorAll('button[data-clear]').forEach(b => b.onclick = () => {
+    const k = b.dataset.clear;
+    S.sat.drill[k] = ''; S.sat.drill[k + 'Label'] = '';
+    // Clearing a level clears everything below it, so the stack stays coherent.
+    if (k === 'city') { S.sat.drill.mfr = ''; S.sat.drill.mfrLabel = '';
+                        S.sat.drill.item = ''; S.sat.drill.itemLabel = ''; }
+    if (k === 'mfr')  { S.sat.drill.item = ''; S.sat.drill.itemLabel = ''; }
+    refreshSat();
+  });
+}
+
+function drawSatTrend(tr) {
+  const t = T();
+  const days = tr.map(r => r.day);
+  const showSplit = S.sat.scope === 'all';
+  const mk = (name, key, color) => ({
+    name, type: 'line', smooth: false, symbol: 'circle', symbolSize: 8,
+    showSymbol: tr.length <= 40,
+    lineStyle: {width: 2, cap: 'round', join: 'round', color},
+    itemStyle: {color, borderColor: t.surface, borderWidth: 2}, // 2px surface ring
+    areaStyle: showSplit ? null : {color, opacity: 0.10},        // wash, not a block
+    data: tr.map(r => r[key] || 0),
+    // Selective direct label: the last point only.
+    endLabel: {show: true, color: t.text2, fontSize: 11,
+      formatter: p => inr(p.value), distance: 6},
+    emphasis: {focus: 'series'},
+  });
+  const series = showSplit
+    ? [mk('On satellite list', 'fee_on_list', T().s1),
+       mk('Off list', 'fee_off_list', T().s2)]
+    : [mk('Satellite fee', 'fee', T().s1)];
+
+  chart('chSatTrend').setOption(Object.assign(baseOpt(), {
+    grid: {left: 6, right: 62, top: 14, bottom: 4, containLabel: true},
+    tooltip: {
+      trigger: 'axis', confine: true, borderColor: t.axis, backgroundColor: t.surface,
+      textStyle: {color: t.text1, fontSize: 12}, extraCssText: 'border-radius:8px;',
+      axisPointer: {type: 'line', lineStyle: {color: t.axis, width: 1}},  // crosshair
+      formatter: ps => `<b>${esc(ps[0].axisValue)}</b><br>` + ps.map(p =>
+        `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${p.color};margin-right:6px"></span>`
+        + `${esc(p.seriesName)} ${inrFull(p.value)}`).join('<br>'),
+    },
+    xAxis: timeAxis(t, {data: days, boundaryGap: false,
+      axisLabel: {formatter: dayLabel}}),
+    yAxis: valAxis(t, {axisLabel: {formatter: money}}),
+    series,
+  }), true);
+  setLegend('lgSatTrend', showSplit
+    ? [{label: 'On satellite list', color: T().s1, line: true},
+       {label: 'Off list (not satellite)', color: T().s2, line: true}]
+    : []);   // one series -> no legend box; the card title names it
+  const n = tr.length;
+  $('satTrendSub').textContent = n
+    ? `${n} day${n > 1 ? 's' : ''}, ${tr[0].day} → ${tr[n - 1].day}. Fee accrued per day for the current slice.`
+    : 'No days in this slice.';
+}
+
+function drawSatSplits(sp) {
+  const t = T();
+  // Two-category splits are their own charts on their own axis -- never one
+  // plot with two scales.
+  const donutish = (id, rows, title) => {
+    chart(id).setOption(Object.assign(baseOpt(), {
+      grid: {left: 12, right: 64, top: 22, bottom: 4, containLabel: true},
+      title: {text: title, left: 0, top: 0,
+        textStyle: {color: t.muted, fontSize: 11, fontWeight: 600}},
+      tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+        backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+        extraCssText: 'border-radius:8px;',
+        formatter: p => `<b>${esc(p.name)}</b><br>${inrFull(p.value)}<br>${num(rows[p.dataIndex].net_qty)} units`},
+      xAxis: valAxis(t, {axisLabel: {formatter: money}}),
+      yAxis: catAxis(t, {inverse: true,
+        data: rows.map(r => clip(r.label || '—', 18))}),
+      series: [{
+        type: 'bar', barMaxWidth: 18, itemStyle: {borderRadius: CAP_H},
+        data: rows.map(r => ({name: r.label || '—', value: r.fee})),
+        itemStyle: {color: t.s1, borderRadius: CAP_H},
+        label: {show: true, position: 'right', color: t.text2, fontSize: 11,
+          formatter: p => inr(p.value)},
+      }],
+    }), true);
+  };
+  donutish('chSatBucket', sp.bucket || [], 'BY MRP BUCKET');
+  donutish('chSatPtype', sp.product_type || [], 'BY PRODUCT TYPE');
+
+  const rates = sp.rate || [];
+  chart('chSatRate').setOption(Object.assign(baseOpt(), {
+    grid: {left: 6, right: 16, top: 24, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;',
+      formatter: p => { const r = rates[p.dataIndex];
+        return `<b>₹${esc(r.label)} per unit</b><br>${inrFull(r.fee)} of fee`
+             + `<br>${num(r.net_qty)} units over ${compact(r.n_rows)} rows`; }},
+    xAxis: timeAxis(t, {data: rates.map(r => '₹' + r.label)}),
+    yAxis: valAxis(t, {name: 'fee', axisLabel: {formatter: money}}),
+    // One series -> one colour for every bar. Never a value ramp on nominal bars.
+    series: [{type: 'bar', barMaxWidth: 24, itemStyle: {color: t.s1, borderRadius: CAP_V},
+      data: rates.map(r => r.fee)}],
+  }), true);
+}
+
+const SAT_DIM_LABEL = {city: 'City', mfr: 'Manufacturer', item: 'Item', facility: 'Facility'};
+
+function drawSatBy(by) {
+  const dim = S.sat.dim;
+  const rows = (by.rows || by || []);
+  const isFac = dim === 'facility';
+  const list = isFac ? rows.map(r => ({
+    id: r.facility_id, label: r.facility_name, fee: r.fee, net_qty: r.net_qty,
+    cities: r.cities, outlets: r.outlets, mfrs: r.mfrs,
+    rate_per_unit: r.net_qty ? r.fee / r.net_qty : null,
+  })) : rows;
+  const tot = by.total || {};
+
+  $('satByTitle').textContent = `${SAT_DIM_LABEL[dim]} breakdown`;
+  $('satBarTitle').textContent = `Top ${Math.min(12, list.length)} ${SAT_DIM_LABEL[dim].toLowerCase()} by fee`;
+  $('satBySub').textContent = isFac
+    ? `${num(list.length)} facilities in this slice.`
+    : `${num(tot.groups)} ${SAT_DIM_LABEL[dim].toLowerCase()} values in this slice, totalling ${inr(tot.fee)}. `
+      + (dim === 'item' ? 'This is the item-level leaf.' : 'Click a row to drill down.');
+
+  let maxFee = 0; list.forEach(r => { if (r.fee > maxFee) maxFee = r.fee; });
+
+  // Columns differ per dimension, but every one of them is width-constrained and
+  // ellipsised, which is what keeps the table inside the viewport.
+  let cols = [{k: 'label', h: SAT_DIM_LABEL[dim], w: '30%',
+    title: (v, r) => v + (r.mfr ? ' — ' + r.mfr : ''),
+    fmt: (v, r) => `<span class="rankdot" style="background:${
+        r.is_satellite === false ? CSSVar('--series-other') : CSSVar('--s1')}"></span>${esc(v || '—')}`
+      + (dim === 'item' && r.mfr ? `<span class="sub2">${esc(r.mfr)}</span>` : '')}];
+  if (dim === 'city') cols.push({k: 'distance_km', h: 'BE dist', w: '10%', num: true,
+    fmt: v => v == null ? '<span class="dim">off list</span>' : num(v, 0) + ' km'});
+  if (dim === 'item') cols.push({k: 'variant_mrp', h: 'MRP', w: '9%', num: true,
+    fmt: (v, r) => v == null ? '—' : '₹' + num(v),
+    title: (v, r) => `MRP ₹${num(v)} vs threshold ₹${num(r.mrp_threshold)} → ${r.bucket || ''}`});
+  if (dim === 'mfr') cols.push({k: 'contract_state', h: 'Contract', w: '13%',
+    cls: 'hn2', fmt: v => stateBadge(v)});
+  if (isFac) cols.push({k: 'cities', h: 'Cities', w: '9%', num: true, fmt: v => num(v)});
+  cols.push(
+    {k: 'fee', h: 'Fee', w: '16%', num: true, cls: 'barcell',
+     fmt: barFmt(inr, () => maxFee), title: v => inrFull(v)},
+    {k: 'net_qty', h: 'Net units', w: '11%', num: true, fmt: v => num(v)},
+    {k: 'rate_per_unit', h: '₹/unit', w: '9%', num: true, cls: 'hn2',
+     fmt: v => v == null ? '—' : '₹' + num(v, 2)});
+  if (dim === 'city') cols.push({k: 'mfrs', h: 'Mfrs', w: '7%', num: true, fmt: v => num(v)},
+    {k: 'items', h: 'Items', w: '8%', num: true, cls: 'hn', fmt: v => num(v)});
+  if (dim === 'mfr') cols.push({k: 'cities', h: 'Cities', w: '8%', num: true, fmt: v => num(v)},
+    {k: 'items', h: 'Items', w: '8%', num: true, cls: 'hn', fmt: v => num(v)});
+  if (isFac) cols.push({k: 'outlets', h: 'Outlets', w: '9%', num: true, cls: 'hn', fmt: v => num(v)});
+
+  const canDrill = dim === 'city' || dim === 'mfr';
+  renderTable('satByTbl', cols, list, {
+    click: canDrill ? row => {
+      if (dim === 'city') {
+        S.sat.drill.city = row.id; S.sat.drill.cityLabel = row.label;
+        setDim('mfr');
+      } else {
+        S.sat.drill.mfr = row.id; S.sat.drill.mfrLabel = row.label;
+        setDim('item');
+      }
+    } : null,
+    empty: 'Nothing matches these filters.',
+  });
+
+  // Top 12 bar. One series, one colour -- rank is already the y order, so hue
+  // carries nothing and must not be a ramp.
+  const t = T(), top = list.slice(0, 12);
+  chart('chSatBar').setOption(Object.assign(baseOpt(), {
+    grid: {left: 14, right: 70, top: 8, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;max-width:320px;white-space:normal;',
+      formatter: p => { const r = top[p.dataIndex];
+        return `<b>${esc(r.label)}</b><br>${inrFull(r.fee)}<br>${num(r.net_qty)} units`
+             + (r.rate_per_unit ? ` · ₹${num(r.rate_per_unit, 2)}/unit` : ''); }},
+    xAxis: valAxis(t, {axisLabel: {formatter: money}}),
+    yAxis: catAxis(t, {inverse: true, data: top.map(r => clip(r.label || '—', 26)),
+      axisLabel: {width: 150, overflow: 'truncate'}}),
+    series: [{type: 'bar', barMaxWidth: 18,
+      itemStyle: {color: t.s1, borderRadius: CAP_H},
+      data: top.map(r => r.fee),
+      label: {show: true, position: 'right', color: t.text2, fontSize: 11,
+        formatter: p => inr(p.value)}}],
+  }), true);
+}
+
+async function refreshFacilities() {
+  const d = await api('/api/sat/facilities',
+    {scope: S.sat.scope, city: S.sat.drill.city, limit: 40});
+  let max = 0; d.forEach(r => { if (r.fee > max) max = r.fee; });
+  renderTable('satFacTbl', [
+    {k: 'facility_name', h: 'Facility', w: '46%', title: v => v,
+     fmt: v => esc(v || '—')},
+    {k: 'cities', h: 'Cities', w: '12%', num: true, fmt: v => num(v)},
+    {k: 'fee', h: 'Fee', w: '22%', num: true, cls: 'barcell',
+     fmt: barFmt(inr, () => max), title: v => inrFull(v)},
+    {k: 'net_qty', h: 'Units', w: '20%', num: true, fmt: v => num(v)},
+  ], d, {empty: 'No facilities in this slice.'});
+}
+
+function setDim(dim) {
+  S.sat.dim = dim; S.sat.search = '';
+  $('sSearch').value = '';
+  document.querySelectorAll('#satDimSeg button').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.dim === dim)));
+  refreshSat();
+}
+
+/* ==========================================================================
+   3. DEFECTIVE PRODUCTS
+   ========================================================================== */
+// Fixed colour slots for complaint types: assigned once from the overall
+// ranking, so the cloud and the type chart agree and a filter never repaints.
+let TYPE_SLOT = new Map();
+
+async function loadDefects() {
+  const types = (await api('/api/defects/by', {dim: 'type', limit: 40})).rows || [];
+  TYPE_SLOT = new Map();
+  types.forEach((r, i) => TYPE_SLOT.set(r.id, i));
+  const sel = resetSel($('dType'));
+  types.forEach(r => sel.insertAdjacentHTML('beforeend',
+    `<option value="${esc(r.id)}">${esc(humanType(r.id))} (${num(r.qty)})</option>`));
+  ['chDefType','chDefTrend'].forEach(watch);
+  await loadDefectSummary();
+  await refreshDefects();
+}
+
+/* ---------- executive summary ----------
+
+   Two things kept deliberately apart:
+
+   MEASURED  — bucket shares, concentration, recurrence, customer wording. Every
+               one of these is printed with its own number.
+   READ-ACROSS — what the numbers imply about where the fix sits. Labelled as
+               interpretation, because it is. The buckets are an editorial
+               grouping of 14 raw complaint types (see DEFECT_BUCKETS in app.py)
+               and the per-type chart below stays the source of truth.
+
+   The concentration figures are what make the recommendation falsifiable rather
+   than generic: if the top 10 manufacturers carried most of the volume the answer
+   would be "fix these vendors", and the summary would say so. */
+async function loadDefectSummary() {
+  let d;
+  try { d = await api('/api/defects/summary'); }
+  catch (e) { $('defExecBody').innerHTML = noteHTML('warn', 'Summary unavailable',
+    esc(e.message)); return; }
+
+  const t = d.totals || {}, c = d.concentration || {}, tot = +t.qty || 0;
+  if (!tot) { $('defExecCard').hidden = true; return; }
+  $('defExecCard').hidden = false;
+  const sh = v => tot ? (v / tot * 100) : 0;
+  $('defExecScope').innerHTML = `<b>${num(t.complaints)}</b> complaints · `
+    + `<b>${num(t.qty)}</b> units · <b>${inr(t.fee)}</b> at ₹${num(d.rate)}/unit · `
+    + `${esc(t.first_day || '')} → ${esc(t.last_day || '')} (${num(t.days)} days with data)`;
+
+  const buckets = d.buckets || [];
+  const top = buckets[0] || {};
+  const top10Mfr = sh(c.top10_mfr_qty), top50Item = sh(c.top50_item_qty);
+  const chronic = d.chronic || [];
+
+  // --- 1. what customers are complaining about
+  const cols = SERIES();
+  const meters = buckets.map((b, i) => `
+    <div class="mrow">
+      <span class="nm" title="${esc(b.types.map(humanType).join(', '))}">${esc(b.label)}</span>
+      <span class="pc">${pct(sh(b.qty))}</span>
+      <div class="track"><div class="fill" style="width:${Math.max(0.6, sh(b.qty)).toFixed(1)}%;background:${cols[i] || SERIES_OTHER()}"></div></div>
+    </div>`).join('');
+
+  const wordBits = buckets.slice(0, 3).map(b => {
+    const w = (d.words || {})[b.bucket] || [];
+    if (!w.length) return '';
+    return `<div class="def"><div class="t">${esc(b.label)} — ${num(b.qty)} units</div>`
+      + `<div class="d">${esc(b.why)}<br><br>Customers' own words: `
+      + w.map(x => `<b>“${esc(x.term)}”</b> (${num(x.mentions)})`).join(', ')
+      + `</div></div>`;
+  }).join('');
+
+  // --- 2. the read-across. Each claim names the figure it rests on.
+  const findings = [];
+  findings.push(`<b>${pct(sh(top.qty))} of returned units are ${esc((top.label || '').toLowerCase())}</b> `
+    + `— ${num(top.qty)} units, ${inr(top.fee)}. That is ${(sh(top.qty) / Math.max(1, sh((buckets[1] || {}).qty))).toFixed(1)}× `
+    + `the next mode (${esc((buckets[1] || {}).label || '')}, ${pct(sh((buckets[1] || {}).qty))}).`);
+
+  findings.push(`<b>It is not a short vendor list.</b> The 10 worst manufacturers carry only `
+    + `${pct(top10Mfr)} of the volume and the 50 worst SKUs only ${pct(top50Item)}; `
+    + `${num(c.single_unit_items)} of ${num(t.items)} items returned exactly one unit. `
+    + `Volume this diffuse across ${num(t.mfrs)} manufacturers is a process signal, not a supplier signal.`);
+
+  if (chronic.length) {
+    const minDays = Math.min(...chronic.map(r => +r.days || 0));
+    findings.push(`<b>${num(chronic.length)} SKU${chronic.length > 1 ? 's' : ''} come back on at `
+      + `least ${num(minDays)} of the ${num(t.days)} days with data</b> — led by `
+      + `${esc(chronic[0].item_name)} (${esc(chronic[0].mfr)}), ${num(chronic[0].qty)} units on `
+      + `${num(chronic[0].days)} of ${num(t.days)} days. Recurrence that steady is a standing `
+      + `defect in the pack or the listing, not a bad batch.`);
+  }
+
+  const auth = buckets.find(b => b.bucket === 'authenticity');
+  if (auth && auth.qty) {
+    findings.push(`<b>${num(auth.qty)} units were reported fake or duplicate</b> across `
+      + `${num(auth.mfrs)} manufacturers — ${pct(sh(auth.qty))} of volume, and the one category `
+      + `where severity is not proportional to quantity.`);
+  }
+
+  // A taxonomy caveat, because it changes how the top bucket should be read.
+  const hw = ((d.words || {}).handling || []).map(x => x.term);
+  const leaky = hw.some(w => /work/.test(w));
+  const caveat = leaky
+    ? noteHTML('warn', 'The damage bucket is partly a catch-all',
+        `The most common phrase inside <em>${esc(top.label)}</em> is `
+        + `<b>“${esc(hw[0])}”</b>, which describes a product fault rather than damage. `
+        + `<code>COMPLAINT_DAMAGED_ITEM</code> is evidently where agents put anything that does `
+        + `not fit elsewhere, so read ${pct(sh(top.qty))} as an <b>upper bound</b> on handling `
+        + `damage and treat the split between handling and product quality as approximate.`)
+    : '';
+
+  // --- 3. what to fix. Ordered by the volume each action addresses, and each one
+  // states the volume it would touch so it can be sized against the effort.
+  const actions = [
+    [`Packaging spec and handling for the damage tail`,
+     `${num(top.qty)} units · ${inr(top.fee)}`,
+     `The largest single lever. Because the volume is spread over ${num(top.items)} items rather `
+     + `than a handful, per-SKU fixes will not move it — the candidates are transit packaging `
+     + `standards by pack format (“packet torn”, “not sealed” are top phrases), warehouse `
+     + `handling audits, and last-mile handling. Sizing needs a pack-format dimension the `
+     + `current extract does not carry.`],
+    [`Vendor QC on the ${num((buckets[1] || {}).items || 0)} items behind product faults`,
+     `${num((buckets[1] || {}).qty || 0)} units · ${inr((buckets[1] || {}).fee || 0)}`,
+     `This is the bucket the <b>defective-product-penalty clause</b> actually addresses — dead on `
+     + `arrival, not charging, off smell or taste. Cross-referencing these manufacturers against `
+     + `the Contracts tab's <em>Defective product penalty</em> filter shows which of them are `
+     + `already contractually chargeable.`],
+    [`The ${num(chronic.length)} chronic SKUs, individually`,
+     `${num(chronic.reduce((a, r) => a + (+r.qty || 0), 0))} units`,
+     `Small in volume but the cheapest thing on this list to fix: a named, stable list of items `
+     + `failing every single day. Each is one pack change, one listing correction or one delist.`],
+    [`Catalogue accuracy for expectation and size mismatches`,
+     `${num((buckets.find(b => b.bucket === 'listing') || {}).qty || 0)} units`,
+     `No supply-chain fix applies here — the item is fine and the page was wrong. Images, size `
+     + `and variant data on the ${num((buckets.find(b => b.bucket === 'listing') || {}).items || 0)} `
+     + `items involved.`],
+  ];
+
+  $('defExecBody').innerHTML = `
+    ${caveat}
+    <div class="grid g2" style="margin-bottom:12px">
+      <div>
+        <div class="mgroup">What customers are complaining about</div>
+        <div class="meters">${meters}</div>
+      </div>
+      <div>
+        <div class="mgroup">Read-across — interpretation, not measurement</div>
+        <ul class="exec">${findings.map(f => `<li>${f}</li>`).join('')}</ul>
+      </div>
+    </div>
+    <div class="mgroup">In the customers' words, by failure mode</div>
+    <div class="defs" style="margin-bottom:12px">${wordBits}</div>
+    <div class="mgroup">What to fix, largest lever first</div>
+    <div class="defs">${actions.map(([h, size, why]) =>
+      `<div class="def"><div class="t">${h} <span class="hint">· ${size}</span></div>
+        <div class="d">${why}</div></div>`).join('')}</div>
+    <p class="hint" style="margin-top:10px">Keyword phrases are tokenised at build time and carry no date, so they always reflect the full defect window even when a period is selected. Everything else here honours the period.</p>`;
+}
+
+const typeColor = id => {
+  const i = TYPE_SLOT.get(id);
+  return i == null || i >= 8 ? SERIES_OTHER() : SERIES()[i];
+};
+
+async function refreshDefects() {
+  const c = S.def;
+  busy($('defItemWrap'), true);
+  const [kp, types, trend, items, mfrs, terms] = await Promise.all([
+    api('/api/defects/kpis', {ctype: c.ctype}),
+    api('/api/defects/by', {dim: 'type', limit: 40}),
+    api('/api/defects/trend', {ctype: c.ctype}),
+    api('/api/defects/by', {dim: 'item', ctype: c.ctype, search: c.search,
+      sort: 'qty', limit: c.limit}),
+    api('/api/defects/by', {dim: 'mfr', ctype: c.ctype, search: c.search,
+      sort: 'qty', limit: c.limit}),
+    api('/api/defects/terms', {ctype: c.ctype, ngram: c.ngram, limit: 90}),
+  ]);
+  busy($('defItemWrap'), false);
+
+  const rate = kp.rate || 50;
+  $('defTiles').innerHTML = [
+    tile('Defect fee recovered', inr(kp.fee), `at ₹${num(rate)} per unit returned`, 'hero accent'),
+    tile('Defective units returned', num(kp.qty),
+         `${num(kp.complaints)} complaint records`),
+    tile('Products affected', num(kp.items), `${num(kp.mfrs)} manufacturers`),
+    tile('Complaint types', num(kp.types != null ? kp.types : (types.rows || []).length),
+         c.ctype ? humanType(c.ctype) : 'all types in scope'),
+    tile('Fee per complaint', kp.complaints ? inr(kp.fee / kp.complaints) : '—',
+         'most complaints are a single unit'),
+  ].join('');
+
+  $('defNote').innerHTML = noteHTML('info', 'How this fee is calculated',
+    `₹${num(rate)} × units returned, recomputed from <code>bad_returns_qty</code> rather than read from the `
+    + `extract's own <code>penalty</code> column, so the rate is explicit and auditable. `
+    + `The build reconciles the two on every row and flags any drift on the Data tab.`);
+
+  drawDefTypes(types.rows || []);
+  drawDefTrend(trend);
+  drawCloud(terms);
+  drawDefTables(items.rows || [], mfrs.rows || []);
+}
+
+function drawDefTypes(rows) {
+  const t = T();
+  // Colour by complaint type (identity), capped at 8 slots + Other -- and the
+  // legend below carries the same identity, so nothing rests on hue alone.
+  chart('chDefType').setOption(Object.assign(baseOpt(), {
+    grid: {left: 14, right: 70, top: 8, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;',
+      formatter: p => { const r = rows[p.dataIndex];
+        return `<b>${esc(humanType(r.id))}</b><br>${inrFull(r.fee)}`
+             + `<br>${num(r.qty)} units · ${num(r.complaints)} complaints`; }},
+    xAxis: valAxis(t, {axisLabel: {formatter: money}}),
+    yAxis: catAxis(t, {inverse: true, data: rows.map(r => clip(humanType(r.id), 21)),
+      axisLabel: {width: 132, overflow: 'truncate'}}),
+    series: [{type: 'bar', barMaxWidth: 16, itemStyle: {borderRadius: CAP_H},
+      data: rows.map(r => ({value: r.fee, itemStyle: {color: typeColor(r.id)}})),
+      label: {show: true, position: 'right', color: t.text2, fontSize: 11,
+        formatter: p => inr(p.value)}}],
+  }), true);
+}
+
+function drawDefTrend(rows) {
+  const t = T();
+  chart('chDefTrend').setOption(Object.assign(baseOpt(), {
+    grid: {left: 6, right: 54, top: 14, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'axis', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;',
+      axisPointer: {type: 'line', lineStyle: {color: t.axis, width: 1}},
+      formatter: ps => { const r = rows[ps[0].dataIndex];
+        return `<b>${esc(r.day)}</b><br>${num(r.qty)} units · ${inrFull(r.fee)}`
+             + `<br>${num(r.complaints)} complaints`; }},
+    xAxis: timeAxis(t, {data: rows.map(r => r.day), boundaryGap: false,
+      axisLabel: {formatter: dayLabel}}),
+    yAxis: valAxis(t, {name: 'units', axisLabel: {formatter: money}}),
+    series: [{
+      type: 'line', symbol: 'circle', symbolSize: 8, showSymbol: rows.length <= 45,
+      lineStyle: {width: 2, cap: 'round', color: t.s1},
+      itemStyle: {color: t.s1, borderColor: t.surface, borderWidth: 2},
+      areaStyle: {color: t.s1, opacity: 0.10},
+      data: rows.map(r => r.qty),
+      endLabel: {show: true, color: t.text2, fontSize: 11,
+        formatter: p => num(p.value), distance: 6},
+    }],
+  }), true);
+  const n = rows.length;
+  $('defTrendSub').textContent = n
+    ? `${rows[0].day} → ${rows[n - 1].day}. Units returned per day`
+      + (S.def.ctype ? ` for ${humanType(S.def.ctype).toLowerCase()}.` : ' across all complaint types.')
+    : 'No days in this slice.';
+}
+
+function drawCloud(terms) {
+  const el = $('defCloud');
+  if (!terms.length) { el.innerHTML = '<div class="empty">No terms above the frequency floor.</div>';
+    setLegend('lgCloud', []); return; }
+  const max = Math.max(...terms.map(t => t.mentions));
+  const min = Math.min(...terms.map(t => t.mentions));
+  // sqrt so AREA reads proportional to mentions, not height. 13px..40px.
+  const size = m => {
+    const f = max === min ? 1 : (Math.sqrt(m) - Math.sqrt(min)) / (Math.sqrt(max) - Math.sqrt(min));
+    return (13 + f * 27).toFixed(1);
+  };
+  // Word in ink + a colour dot for the dominant complaint type. When the view
+  // is already filtered to one type the dot would be constant, so it is omitted.
+  el.innerHTML = terms.map(t => {
+    const dot = S.def.ctype ? ''
+      : `<span class="cd" style="background:${typeColor(t.top_type)}"></span>`;
+    return `<span class="w" style="font-size:${size(t.mentions)}px"`
+      + ` title="${esc(t.term)} — ${num(t.mentions)} complaints, ${num(t.qty)} units, ${inrFull(t.fee)}`
+      + (t.top_type && !S.def.ctype ? ` — mostly ${humanType(t.top_type)}` : '') + `">`
+      + dot + esc(t.term) + `</span>`;
+  }).join('');
+
+  // Legend: only the types actually present in the cloud, in slot order.
+  if (!S.def.ctype) {
+    const present = [...new Set(terms.map(t => t.top_type).filter(Boolean))]
+      .sort((a, b) => (TYPE_SLOT.get(a) ?? 99) - (TYPE_SLOT.get(b) ?? 99))
+      .slice(0, 9);
+    setLegend('lgCloud', present.map(ty => ({label: humanType(ty), color: typeColor(ty)})));
+  } else {
+    setLegend('lgCloud', []);
+  }
+
+  // The table-view twin. Every value in the cloud is also readable here, so
+  // nothing is gated on a hover tooltip.
+  renderTable('cloudTbl', [
+    {k: 'term', h: S.def.ngram === 2 ? 'Phrase' : 'Term', w: '34%', title: v => v,
+     fmt: (v, r) => `<span class="rankdot" style="background:${
+        S.def.ctype ? CSSVar('--s1') : typeColor(r.top_type)}"></span>${esc(v)}`},
+    {k: 'mentions', h: 'Complaints', w: '16%', num: true, fmt: v => num(v)},
+    {k: 'qty', h: 'Units', w: '14%', num: true, fmt: v => num(v)},
+    {k: 'fee', h: 'Fee', w: '18%', num: true, fmt: v => inr(v), title: v => inrFull(v)},
+    {k: 'top_type', h: 'Mostly', w: '18%', title: v => humanType(v),
+     fmt: v => v ? esc(humanType(v)) : '—'},
+  ], terms, {empty: 'No terms.'});
+}
+
+function drawDefTables(items, mfrs) {
+  let maxQ = 0; items.forEach(r => { if (r.qty > maxQ) maxQ = r.qty; });
+  $('defItemSub').textContent =
+    `${num(items.length)} products shown, ranked by units returned`
+    + (S.def.ctype ? ` for ${humanType(S.def.ctype).toLowerCase()}.` : '.');
+  renderTable('defItemTbl', [
+    {k: 'label', h: 'Product', w: '42%', title: (v, r) => v + ' — ' + (r.mfr || ''),
+     fmt: (v, r) => esc(clip(v, 70)) + (r.mfr ? `<span class="sub2">${esc(r.mfr)}</span>` : '')},
+    {k: 'qty', h: 'Units', w: '15%', num: true, cls: 'barcell',
+     fmt: barFmt(v => num(v), () => maxQ)},
+    {k: 'fee', h: 'Fee @ ₹50', w: '16%', num: true, fmt: v => inr(v), title: v => inrFull(v)},
+    {k: 'complaints', h: 'Cases', w: '11%', num: true, cls: 'hn', fmt: v => num(v)},
+    {k: 'top_type', h: 'Top complaint', w: '17%', cls: 'hn2', title: v => humanType(v),
+     fmt: v => v ? `<span class="rankdot" style="background:${typeColor(v)}"></span>`
+       + esc(clip(humanType(v), 15)) : '—'},
+  ], items, {click: r => openItemDrawer(r), empty: 'No products match.'});
+
+  let maxM = 0; mfrs.forEach(r => { if (r.qty > maxM) maxM = r.qty; });
+  renderTable('defMfrTbl', [
+    {k: 'label', h: 'Manufacturer', w: '44%', title: v => v, fmt: v => esc(clip(v, 60))},
+    {k: 'qty', h: 'Units', w: '16%', num: true, cls: 'barcell',
+     fmt: barFmt(v => num(v), () => maxM)},
+    {k: 'fee', h: 'Fee @ ₹50', w: '18%', num: true, fmt: v => inr(v), title: v => inrFull(v)},
+    {k: 'items', h: 'SKUs', w: '10%', num: true, cls: 'hn2', fmt: v => v == null ? '—' : num(v)},
+    {k: 'complaints', h: 'Cases', w: '13%', num: true, cls: 'hn', fmt: v => num(v)},
+  ], mfrs, {empty: 'No manufacturers match.'});
+}
+
+async function openItemDrawer(row) {
+  openDrawer(clip(row.label, 90), `${row.mfr || ''} · item ${row.id}`, '<div class="empty">Loading…</div>');
+  const d = await api('/api/defects/item', {item_id: row.id});
+  const it = d.item || {}, types = d.types || [];
+  const maxQ = Math.max(1, ...types.map(t => t.qty));
+  $('drawerBody').innerHTML =
+    `<div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr))">
+       ${tile('Units returned', num(it.qty))}
+       ${tile('Fee @ ₹50', inr(it.fee))}
+       ${tile('Complaints', num(it.complaints))}
+       ${tile('Days seen', num(it.days))}
+     </div>
+     <div class="dsec">Complaint mix</div>
+     <div class="meters">${types.map(t => `
+       <div class="mrow">
+         <span class="nm" title="${esc(humanType(t.complaint_type))}">
+           <span class="rankdot" style="background:${typeColor(t.complaint_type)}"></span>
+           ${esc(humanType(t.complaint_type))}</span>
+         <span class="pc">${num(t.qty)}</span>
+         <div class="track"><div class="fill" style="width:${(t.qty / maxQ * 100).toFixed(1)}%;background:${typeColor(t.complaint_type)}"></div></div>
+       </div>`).join('')}</div>
+     <div class="dsec">Detail</div>
+     <div class="kvs">
+       ${kv('Item ID', it.item_id)}${kv('Manufacturer', it.mfr)}
+       ${kv('Manufacturer ID', it.mfr_id)}${kv('Complaint types', num(it.types))}
+       ${kv('GMV recorded', it.gmv ? inrFull(it.gmv) : '₹0')}
+       ${kv('Top complaint', humanType(it.top_type))}
+     </div>`;
+}
+
+/* ==========================================================================
+   4. KAM FEES
+   ========================================================================== */
+async function loadKam() {
+  ['chKamTotal','chKamTop','chKamState'].forEach(watch);
+  const st = await api('/api/kam/states');
+  drawKamState(st);
+  const m0 = await api('/api/kam/monthly', {state: 'all'});
+  const sel = resetSel($('kMonth'));
+  (m0.total || []).slice().reverse().forEach(m => sel.insertAdjacentHTML('beforeend',
+    `<option value="${esc(m.month)}">${esc(monthLabel(m.month))} — ${inr(m.fee)}</option>`));
+  await refreshKam();
+}
+
+async function refreshKam() {
+  const x = S.meta.extra || {}, st = S.kam.state;
+  busy($('kamTblWrap'), true);
+  const [monthly, topMfr, byMfr] = await Promise.all([
+    api('/api/kam/monthly', {state: st}),
+    api('/api/kam/top_mfr', {state: st, month: S.kam.month, top: 12}),
+    api('/api/kam/by_mfr', {month: S.kam.month, state: st, search: S.kam.search, limit: 400}),
+  ]);
+  busy($('kamTblWrap'), false);
+
+  const months = monthly.total || [];
+  const latest = months.length ? months[months.length - 1] : {};
+  const accrued = months.reduce((a, m) => a + (m.fee || 0), 0);
+  $('kamTiles').innerHTML = [
+    tile('KAM fee accrued to date', inr(accrued),
+         `${num(months.length)} months, ${x.kam_first_month || '?'} → ${x.kam_last_month || '?'}`, 'hero accent'),
+    tile('Current monthly run-rate', inr(latest.fee),
+         `${num(latest.contracts)} contracts live in ${monthLabel(latest.month)}`),
+    tile('KAM contracts', num(x.kam_contracts),
+         `${num(x.kam_approved)} APPROVED · ${num((+x.kam_contracts || 0) - (+x.kam_approved || 0))} not yet`),
+    tile('Billable accrued (APPROVED only)', inr(+x.kam_fee_to_date_approved || 0),
+         `${pct((+x.kam_fee_to_date_approved || 0) / (+x.kam_fee_to_date || 1) * 100)} of the accrued total`),
+    tile('Contracts added in latest month', num(latest.new_contracts),
+         monthLabel(latest.month)),
+  ].join('');
+
+  $('kamNote').innerHTML = noteHTML('warn', 'Accrued is not billable',
+    `${num((+x.kam_contracts || 0) - (+x.kam_approved || 0))} of ${num(x.kam_contracts)} KAM contracts are `
+    + `<b>not APPROVED</b> — mostly PENDING APPROVAL. This view accrues all of them by default, so the `
+    + `headline ${inr(+x.kam_fee_to_date || 0)} is the contracted ceiling, not what is billable today `
+    + `(${inr(+x.kam_fee_to_date_approved || 0)}). Every KAM contract is also valid-until-cancelled, so `
+    + `accrual has no end date — it runs to ${esc((S.meta.meta || {}).kam_accrual_end || 'the latest contract month')}.`);
+
+  drawKamTotal(months, monthly.by_state || []);
+  drawKamTop(topMfr);
+  drawKamTable(byMfr);
+}
+
+/* Status colours for contract state. APPROVED genuinely means "billable" and
+   EXPIRED means "dead", so these are status tokens, not categorical slots -- and
+   each ships with its legend label, so hue never carries the meaning alone. */
+function stateColor(t, s) {
+  return s === 'APPROVED' ? t.good
+    : s === 'EXPIRED' ? t.critical
+    : s === 'DRAFT' ? SERIES_OTHER() : t.warning;
+}
+
+function drawKamTotal(months, byState) {
+  const t = T();
+  $('kamTotNote').textContent = S.kam.state === 'all' ? 'all contract states'
+    : S.kam.state + ' only';
+  // Stack the monthly total by contract state. That is the decomposition that
+  // matters here: the APPROVED band is billable, everything above it is a
+  // contracted ceiling.
+  const mo = months.map(m => m.month);
+  const states = [...new Set(byState.map(r => r.contract_state))]
+    .sort((a, b) => (a === 'APPROVED' ? -1 : b === 'APPROVED' ? 1 : 0));
+  const key = new Map(byState.map(r => [r.contract_state + '|' + r.month, r]));
+  const series = states.map(s => ({
+    name: s, type: 'bar', stack: 'kam', barMaxWidth: 24,
+    // 2px surface separation between stacked segments -- the surface does the
+    // separating, never a stroke drawn around each segment.
+    itemStyle: {color: stateColor(t, s), borderColor: t.surface, borderWidth: 1},
+    data: mo.map(m => (key.get(s + '|' + m) || {}).fee || 0),
+  }));
+  if (series.length) series[series.length - 1].itemStyle.borderRadius = CAP_V;
+
+  chart('chKamTotal').setOption(Object.assign(baseOpt(), {
+    grid: {left: 12, right: 24, top: 16, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'axis', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;max-width:320px;white-space:normal;',
+      axisPointer: {type: 'shadow', shadowStyle: {color: t.sunken}},
+      formatter: ps => {
+        const m = months[ps[0].dataIndex] || {};
+        const body = ps.filter(p => p.value > 0).map(p =>
+          `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${p.color};margin-right:6px"></span>`
+          + `${esc(p.seriesName)} ${inr(p.value)}`).join('<br>');
+        return `<b>${esc(monthLabel(m.month))}</b> — ${inrFull(m.fee)}<br>${body}`
+             + `<br><span style="color:${t.muted}">${num(m.contracts)} contracts accruing`
+             + (m.new_contracts ? ` · +${num(m.new_contracts)} new` : '') + '</span>';
+      }},
+    xAxis: timeAxis(t, {data: mo.map(monthLabel)}),
+    yAxis: valAxis(t, {name: 'fee / month', axisLabel: {formatter: money}}),
+    // One measure, one axis. Contract count lives in the tooltip, never as a
+    // second y-scale.
+    series,
+  }), true);
+  setLegend('lgKamTotal', states.map(s => ({
+    label: s + (s === 'APPROVED' ? ' — billable' : ' — contracted, not billable'),
+    color: stateColor(t, s)})));
+}
+
+function drawKamTop(rows) {
+  const t = T();
+  $('kamTopTitle').textContent = S.kam.month
+    ? `KAM fee by manufacturer — ${monthLabel(S.kam.month)}`
+    : 'KAM fee by manufacturer — accrued to date';
+  $('kamTopHint').textContent =
+    `top ${rows.length} of ${num((S.meta.extra || {}).kam_contracts)}`;
+  // One series -> one colour for every bar. Rank is already the y order, so hue
+  // would carry nothing.
+  chart('chKamTop').setOption(Object.assign(baseOpt(), {
+    grid: {left: 14, right: 78, top: 8, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;max-width:320px;white-space:normal;',
+      formatter: p => { const r = rows[p.dataIndex];
+        return `<b>${esc(r.mfr)}</b><br>${inrFull(r.fee)}`
+             + `<br>${inrFull(r.monthly_fee)}/month × ${num(r.months)} month(s)`
+             + `<br><span style="color:${t.muted}">${esc(r.contract_state)}</span>`; }},
+    xAxis: valAxis(t, {axisLabel: {formatter: money}}),
+    yAxis: catAxis(t, {inverse: true, data: rows.map(r => clip(r.mfr, 30)),
+      axisLabel: {width: 170, overflow: 'truncate'}}),
+    series: [{type: 'bar', barMaxWidth: 18,
+      itemStyle: {color: t.s1, borderRadius: CAP_H},
+      data: rows.map(r => r.fee),
+      label: {show: true, position: 'right', color: t.text2, fontSize: 11,
+        formatter: p => inr(p.value)}}],
+  }), true);
+}
+
+function drawKamState(st) {
+  const t = T(), rows = st.states || [];
+  chart('chKamState').setOption(Object.assign(baseOpt(), {
+    grid: {left: 12, right: 64, top: 8, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;',
+      formatter: p => { const r = rows[p.dataIndex];
+        return `<b>${esc(r.contract_state)}</b><br>${num(r.contracts)} contracts`
+             + `<br>${inrFull(r.monthly_fee)} per month contracted`; }},
+    xAxis: valAxis(t),
+    yAxis: catAxis(t, {inverse: true, data: rows.map(r => clip(r.contract_state, 20))}),
+    series: [{type: 'bar', barMaxWidth: 18, itemStyle: {borderRadius: CAP_H},
+      // Status semantics: APPROVED is genuinely "good" here (billable), the
+      // rest are not-yet. Status colours ship with the text label beside them,
+      // so hue never carries this alone.
+      data: rows.map(r => ({value: r.contracts, itemStyle: {
+        color: r.contract_state === 'APPROVED' ? t.good : t.warning}})),
+      label: {show: true, position: 'right', color: t.text2, fontSize: 11,
+        formatter: p => num(p.value)}}],
+  }), true);
+
+  renderTable('kamChargeTbl', [
+    {k: 'monthly_fee', h: 'Contracted ₹ / month', w: '55%', num: true,
+     fmt: v => inrFull(v)},
+    {k: 'contracts', h: 'Contracts', w: '45%', num: true, fmt: v => num(v)},
+  ], st.charges || [], {empty: 'No KAM charges.'});
+}
+
+function drawKamTable(d) {
+  const rows = d.rows || [], tot = d.total || {};
+  let max = 0; rows.forEach(r => { if (r.fee > max) max = r.fee; });
+  $('kamTblTitle').textContent = S.kam.month
+    ? `Manufacturers charged in ${monthLabel(S.kam.month)}`
+    : 'Manufacturers — KAM fee accrued to date';
+  $('kamTblMeta').textContent = `${num(tot.mfrs)} manufacturers · ${inr(tot.fee)}`;
+  $('kamTblSub').textContent = S.kam.month
+    ? `One row per manufacturer accruing KAM fee in ${monthLabel(S.kam.month)}.`
+    : 'Accrued = monthly charge × months since the contract went effective.';
+  renderTable('kamTbl', [
+    {k: 'mfr', h: 'Manufacturer', w: '34%', title: (v, r) => v + ' — contract ' + r.contract_id,
+     fmt: (v, r) => esc(clip(v, 52)) + `<span class="sub2">contract ${esc(r.contract_id)} · effective ${esc(r.effective_date || '—')}</span>`},
+    {k: 'contract_state', h: 'State', w: '16%', fmt: v => stateBadge(v)},
+    {k: 'monthly_fee', h: '₹ / month', w: '13%', num: true, fmt: v => inrFull(v)},
+    {k: 'months', h: 'Mos', w: '8%', num: true, cls: 'hn2',
+     title: v => v + ' months accrued', fmt: v => num(v)},
+    {k: 'fee', h: S.kam.month ? 'Fee this month' : 'Accrued', w: '18%', num: true,
+     cls: 'barcell', fmt: barFmt(inr, () => max), title: v => inrFull(v)},
+    {k: 'first_month', h: 'Since', w: '13%', cls: 'hn',
+     fmt: v => esc(monthLabel(v))},
+  ], rows, {empty: 'No manufacturers match these filters.'});
+}
+
+/* ==========================================================================
+   5. RECALL ASSISTANCE (PRN, corrected extract)
+
+   The whole tab is built around one fact: half the returned lines have no
+   recall-assistance contract behind them, so their fee is unknown rather than
+   zero and quantity and money rank differently. Every chart therefore states
+   which of the two it is showing, and the un-contracted share is drawn rather
+   than left to be inferred.
+   ========================================================================== */
+async function loadRecall() {
+  ['chRecallMonth','chRecallMonthQty','chRecallItemQty','chRecallMfrFee',
+   'chRecallItemFee','chRecallRate'].forEach(watch);
+  const [monthly, rates] = await Promise.all([
+    api('/api/recall/monthly'),
+    api('/api/recall/rates'),
+  ]);
+  RECALL_MONTHS = monthly.total || [];
+  const sel = resetSel($('rMonth'));
+  RECALL_MONTHS.slice().reverse().forEach(m => sel.insertAdjacentHTML('beforeend',
+    `<option value="${esc(m.month)}">${esc(monthLabel(m.month))} — ${inr(m.fee)}</option>`));
+  drawRecallMonth(RECALL_MONTHS);
+  drawRecallRates(rates.rows || []);
+  await refreshRecall();
+}
+
+let RECALL_MONTHS = [];
+
+async function refreshRecall() {
+  const x = S.meta.extra || {}, r = S.recall;
+  busy($('recallMfrTblWrap'), true);
+  busy($('recallItemTblWrap'), true);
+  // Four cuts of one cube: items ranked by quantity (the "what comes back most"
+  // question) and by fee (the "what costs most" question), plus manufacturers,
+  // plus the tables. Fired together -- they are independent reads.
+  const [itemQty, itemFee, mfrFee] = await Promise.all([
+    api('/api/recall/by', {dim: 'item', month: r.month, search: r.search,
+                           charged: r.charged, sort: 'qty', limit: r.limit}),
+    api('/api/recall/by', {dim: 'item', month: r.month, search: r.search,
+                           charged: r.charged, sort: 'fee', limit: r.limit}),
+    api('/api/recall/by', {dim: 'mfr', month: r.month, search: r.search,
+                           charged: r.charged, sort: 'fee', limit: r.limit}),
+  ]);
+  busy($('recallMfrTblWrap'), false);
+  busy($('recallItemTblWrap'), false);
+
+  // Tiles follow the Month filter only. The search box narrows the charts and
+  // tables; letting it move the headline totals too would make the KPI row mean
+  // something different on every keystroke.
+  const all = {
+    fee: +x.rtv_fee || 0, qty: +x.rtv_qty || 0,
+    qty_charged: +x.rtv_qty_charged || 0,
+    qty_unrated: +x.rtv_qty_unrated || 0,
+    lines: +x.rtv_lines || 0, lines_charged: +x.rtv_lines_charged || 0,
+    mfrs: +x.rtv_mfrs || 0, mfrs_charged: +x.rtv_mfrs_charged || 0,
+    items: +x.rtv_items || 0, items_charged: +x.rtv_items_charged || 0,
+    contracts: +x.rtv_contracts || 0, rate: +x.rtv_rate_eff || 0,
+  };
+  const m = r.month ? (RECALL_MONTHS.find(mm => mm.month === r.month) || {}) : null;
+  const v = m || all;
+  const scopeLbl = m ? monthLabel(m.month)
+                     : `${num(x.rtv_months)} month${+x.rtv_months === 1 ? '' : 's'}`;
+  $('recallTiles').innerHTML = [
+    tile('Recall fee charged', inr(v.fee),
+         m ? `${monthLabel(m.month)} · ${pct(v.fee / (all.fee || 1) * 100)} of all months`
+           : `${num(x.rtv_months)} months, ${monthLabel(x.rtv_first_month)} → ${monthLabel(x.rtv_last_month)}`,
+         'hero accent'),
+    tile('Units returned', num(v.qty),
+         `<code>prn_qty</code> · ${num(v.qty_charged)} of them chargeable`),
+    tile('Share of units chargeable', pct(v.qty_charged / (v.qty || 1) * 100),
+         `${num(v.lines_charged)} of ${num(v.lines)} lines have a contract rate`),
+    tile('Effective ₹ / chargeable unit', '₹' + num(v.rate, 2),
+         `blend of the contractual ₹5 / ₹2.50 · modal ₹${esc(x.rtv_rate_top || '?')}`),
+    // Counts are DISTINCT over whatever period is in scope, so per-month figures
+    // deliberately do not sum to the all-months figure (most SKUs come back in
+    // both months and are counted once). Saying "distinct in <scope>" is what
+    // stops that from reading as an inconsistency.
+    tile('Manufacturers charged', num(v.mfrs_charged),
+         `of ${num(v.mfrs)} with returns · ${num(v.contracts != null ? v.contracts : all.contracts)} contracts`
+         + `<span class="sub3">distinct in ${esc(scopeLbl)}</span>`),
+    tile('SKUs charged', num(v.items_charged),
+         `of ${num(v.items)} distinct SKUs returned in ${esc(scopeLbl)}`
+         + `<span class="sub3">a SKU returned in both months counts once, so months do not sum</span>`),
+  ].join('');
+
+  const freeQty = all.qty_unrated || (all.qty - all.qty_charged);
+  const inelFee = +x.rtv_fee_ineligible || 0;
+  $('recallNote').innerHTML = noteHTML('warn', 'Returned is not the same as chargeable',
+    `${num(freeQty)} of ${num(all.qty)} returned units `
+    + `(${pct(freeQty / (all.qty || 1) * 100)}) sit on lines with <b>no contract_id and no `
+    + `recall_charge_rs</b>, so their recall fee is <b>unknown, not ₹0</b> — they are outside the `
+    + `chargeable set rather than billed at zero. Only ${num(all.mfrs_charged)} of `
+    + `${num(all.mfrs)} manufacturers with returns are chargeable at all. So the quantity ranking `
+    + `and the fee ranking are different lists, and neither alone answers "which items cost us `
+    + `most". Ranked by raw quantity the top rows are Blinkit's own warehouse and placeholder `
+    + `manufacturers (Grofers Warehouse, Blinkit Non - trade, Dummy Manufacturer 1) — real returns, `
+    + `but not vendor recoveries. Use <b>Chargeable only</b> to drop them.`)
+    + (inelFee > 0 ? noteHTML('warn', 'Charged despite rtv_eligible = 0',
+        `${inr(inelFee)} (${pct(inelFee / (all.fee || 1) * 100)} of the total) is charged on lines the `
+        + `extract flags as <b>not RTV-eligible</b> — neither <code>dmg_rtv_flag</code> nor `
+        + `<code>nte_rtv_flag</code> is set, yet a contract rate was applied. Either the flags do not `
+        + `gate chargeability the way their names imply, or those lines are charged in error. `
+        + `Confirm upstream before this figure is billed.`) : '');
+
+  drawRecallItemQty(itemQty);
+  drawRecallMfrFee(mfrFee);
+  drawRecallItemFee(itemFee);
+  drawRecallTables(mfrFee, itemFee);
+}
+
+/* Fee by month. Single series, single axis -- quantity and rate ride in the
+   tooltip rather than on a second y-scale. */
+function drawRecallMonth(months) {
+  const t = T();
+  $('recallMonthHint').textContent = months.length
+    ? `${num(months.length)} month(s) · ${inr(months.reduce((a, m) => a + (m.fee || 0), 0))} charged`
+    : 'no recall data';
+  chart('chRecallMonth').setOption(Object.assign(baseOpt(), {
+    grid: {left: 12, right: 24, top: 16, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'axis', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;max-width:320px;white-space:normal;',
+      axisPointer: {type: 'line', lineStyle: {color: t.axis, width: 1, type: 'solid'},
+        // A shadow band spans one whole category. With only 2 months on the
+        // axis that is half the plot, which reads as the chart greying out on
+        // hover -- so these two use a thin guide line instead.
+        z: 0},
+      formatter: ps => { const m = months[ps[0].dataIndex] || {};
+        return `<b>${esc(monthLabel(m.month))}</b> — ${inrFull(m.fee)}`
+             + `<br>${num(m.qty)} units returned, ${num(m.qty_charged)} chargeable`
+             + `<br>₹${num(m.rate, 2)} per chargeable unit`
+             + `<br><span style="color:${t.muted}">${num(m.mfrs)} manufacturers · `
+             + `${num(m.items)} items · ${num(m.lines)} lines · ${num(m.contracts)} contracts</span>`; }},
+    xAxis: timeAxis(t, {data: months.map(m => monthLabel(m.month))}),
+    yAxis: valAxis(t, {name: 'fee charged', axisLabel: {formatter: money}}),
+    series: [{type: 'bar', barMaxWidth: 24, data: months.map(m => m.fee),
+      itemStyle: {color: t.s1, borderRadius: CAP_V},
+      label: {show: true, position: 'top', color: t.text2, fontSize: 11,
+        formatter: p => inr(p.value)}}],
+  }), true);
+
+  // Quantity, stacked chargeable vs un-contracted. Two bands, so the
+  // un-contracted majority is visible rather than something the reader has to
+  // divide out -- and it is labelled "no contract rate", never "₹0".
+  const qHint = $('recallQtyHint');
+  const tq = months.reduce((a, m) => a + (m.qty || 0), 0);
+  const cq = months.reduce((a, m) => a + (m.qty_charged || 0), 0);
+  if (qHint) qHint.textContent = `${pct(cq / (tq || 1) * 100)} of units chargeable`;
+  chart('chRecallMonthQty').setOption(Object.assign(baseOpt(), {
+    grid: {left: 12, right: 24, top: 16, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'axis', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;max-width:320px;white-space:normal;',
+      axisPointer: {type: 'line', lineStyle: {color: t.axis, width: 1, type: 'solid'},
+        // A shadow band spans one whole category. With only 2 months on the
+        // axis that is half the plot, which reads as the chart greying out on
+        // hover -- so these two use a thin guide line instead.
+        z: 0},
+      formatter: ps => { const m = months[ps[0].dataIndex] || {};
+        return `<b>${esc(monthLabel(m.month))}</b> — ${num(m.qty)} units returned`
+             + `<br>${num(m.qty_charged)} chargeable (${inrFull(m.fee)})`
+             + `<br>${num(m.qty_unrated != null ? m.qty_unrated : (m.qty || 0) - (m.qty_charged || 0))}`
+             + ` with no contract rate — fee unknown, not ₹0`; }},
+    xAxis: timeAxis(t, {data: months.map(m => monthLabel(m.month))}),
+    yAxis: valAxis(t, {name: 'units returned', axisLabel: {formatter: money}}),
+    series: [
+      {name: 'Chargeable', type: 'bar', stack: 'q', barMaxWidth: 24,
+       itemStyle: {color: t.s1, borderColor: t.surface, borderWidth: 1},
+       data: months.map(m => m.qty_charged || 0)},
+      {name: 'No contract rate', type: 'bar', stack: 'q', barMaxWidth: 24,
+       itemStyle: {color: SERIES_OTHER(), borderColor: t.surface, borderWidth: 1,
+         borderRadius: CAP_V},
+       data: months.map(m => m.qty_unrated != null ? m.qty_unrated
+                                                   : (m.qty || 0) - (m.qty_charged || 0))},
+    ],
+  }), true);
+  setLegend('lgRecallMonthQty', [
+    {label: 'Chargeable — has a contract rate', color: t.s1},
+    {label: 'No contract rate — fee unknown', color: SERIES_OTHER()},
+  ]);
+}
+
+/* Shared ranked-bar renderer for the three item/manufacturer cuts. `measure`
+   picks which of the two stories the bar length tells; the other one stays in
+   the tooltip so neither chart can be misread as the other. */
+function recallBar(id, rows, measure, colour) {
+  const t = T();
+  const fmt = measure === 'fee' ? inr : compact;
+  chart(id).setOption(Object.assign(baseOpt(), {
+    grid: {left: 14, right: 84, top: 8, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;max-width:340px;white-space:normal;',
+      formatter: p => { const r = rows[p.dataIndex] || {};
+        const unrated = r.qty_unrated != null ? r.qty_unrated
+                                             : (r.qty || 0) - (r.qty_charged || 0);
+        return `<b>${esc(r.label)}</b>`
+             + (r.mfr && r.mfr !== r.label ? `<br><span style="color:${t.muted}">${esc(r.mfr)}</span>` : '')
+             + `<br>${inrFull(r.fee)} charged`
+             + `<br>${num(r.qty)} units returned`
+             + (r.qty_charged ? `, ${num(r.qty_charged)} chargeable at ₹${num(r.rate, 2)}/unit` : '')
+             + (unrated > 0 ? `<br><span style="color:${t.muted}">${num(unrated)} with no contract rate (fee unknown)</span>` : '')
+             + `<br><span style="color:${t.muted}">${num(r.lines)} line(s) · ${num(r.months)} month(s)</span>`; }},
+    xAxis: valAxis(t, {axisLabel: {formatter: money}}),
+    yAxis: catAxis(t, {inverse: true, data: rows.map(r => clip(r.label, 38)),
+      axisLabel: {width: 190, overflow: 'truncate'}}),
+    series: [{type: 'bar', barMaxWidth: 18,
+      itemStyle: {color: colour, borderRadius: CAP_H},
+      data: rows.map(r => r[measure]),
+      label: {show: true, position: 'right', color: t.text2, fontSize: 11,
+        formatter: p => fmt(p.value)}}],
+  }), true);
+}
+
+const CHART_TOP = 14;   // bars per ranked chart; the tables carry the full list
+
+function drawRecallItemQty(d) {
+  const rows = (d.rows || []).slice(0, CHART_TOP), tot = d.total || {};
+  const t = T();
+  $('recallQtyTitle').textContent = 'Items returned most — by quantity'
+    + (S.recall.month ? ` — ${monthLabel(S.recall.month)}` : '');
+  $('recallQtyTopHint').textContent = `top ${rows.length} of ${num(tot.keys)} SKUs`;
+  $('recallQtySub').innerHTML = S.recall.charged === 'yes'
+    ? 'Returned quantity (<code>prn_qty</code>) for SKUs with a recall-assistance contract rate.'
+    : 'Returned quantity (<code>prn_qty</code>), all returned lines. Bars with no fee have no '
+      + 'contract rate behind them, so their fee is unknown rather than ₹0 — hover any bar, or set '
+      + '<b>Charged</b> to <b>Chargeable only</b> for the billable ranking.';
+  // Quantity is the measure here, so the bar is deliberately NOT the fee hue --
+  // it reads as a different question, which it is.
+  recallBar('chRecallItemQty', rows, 'qty', t.s2);
+}
+
+function drawRecallMfrFee(d) {
+  const rows = (d.rows || []).slice(0, CHART_TOP), tot = d.total || {};
+  $('recallMfrTitle').textContent = 'Fee split by manufacturer'
+    + (S.recall.month ? ` — ${monthLabel(S.recall.month)}` : '');
+  $('recallMfrHint').textContent =
+    `top ${rows.length} of ${num(tot.keys_charged)} charged`;
+  recallBar('chRecallMfrFee', rows, 'fee', T().s1);
+}
+
+function drawRecallItemFee(d) {
+  const rows = (d.rows || []).slice(0, CHART_TOP), tot = d.total || {};
+  $('recallItemTitle').textContent = 'Fee split by item'
+    + (S.recall.month ? ` — ${monthLabel(S.recall.month)}` : '');
+  $('recallItemHint').textContent =
+    `top ${rows.length} of ${num(tot.keys_charged)} charged`;
+  recallBar('chRecallItemFee', rows, 'fee', T().s1);
+}
+
+function drawRecallTables(mfr, item) {
+  const mrows = mfr.rows || [], irows = item.rows || [];
+  let maxM = 0; mrows.forEach(r => { if (r.fee > maxM) maxM = r.fee; });
+  let maxI = 0; irows.forEach(r => { if (r.fee > maxI) maxI = r.fee; });
+  const mt = mfr.total || {}, it = item.total || {};
+  $('recallMfrTblMeta').textContent =
+    `${num(mrows.length)} shown of ${num(mt.keys)} · ${inr(mt.fee)}`;
+  $('recallItemTblMeta').textContent =
+    `${num(irows.length)} shown of ${num(it.keys)} · ${inr(it.fee)}`;
+  $('recallMfrTblTitle').textContent = 'Manufacturers'
+    + (S.recall.month ? ` — ${monthLabel(S.recall.month)}` : '');
+  $('recallItemTblTitle').textContent = 'Items'
+    + (S.recall.month ? ` — ${monthLabel(S.recall.month)}` : '');
+
+  renderTable('recallMfrTbl', [
+    {k: 'label', h: 'Manufacturer', w: '38%', title: v => v,
+     fmt: (v, r) => esc(clip(v, 46))
+       + `<span class="sub2">${num(r.peers)} item(s) · ${num(r.months)} month(s)</span>`},
+    {k: 'qty', h: 'Units returned', w: '17%', num: true,
+     fmt: (v, r) => num(v) + (r.qty_charged ? `<span class="sub2">${num(r.qty_charged)} chargeable</span>` : '<span class="sub2">none chargeable</span>'),
+     title: (v, r) => num(v) + ' returned, ' + num(r.qty_charged || 0) + ' chargeable'},
+    {k: 'rate', h: '₹ / unit', w: '12%', num: true, cls: 'hn2',
+     fmt: v => v == null ? '—' : '₹' + num(v, 2)},
+    {k: 'fee', h: 'Fee charged', w: '21%', num: true, cls: 'barcell',
+     fmt: barFmt(inr, () => maxM), title: v => inrFull(v)},
+    {k: 'lines', h: 'Lines', w: '12%', num: true, cls: 'hn', fmt: v => num(v)},
+  ], mrows, {empty: 'No manufacturers match these filters.'});
+
+  renderTable('recallItemTbl', [
+    {k: 'label', h: 'Item', w: '40%', title: (v, r) => v + ' — ' + (r.mfr || ''),
+     fmt: (v, r) => esc(clip(v, 46))
+       + (r.mfr ? `<span class="sub2">${esc(clip(r.mfr, 46))}</span>` : '')},
+    {k: 'qty', h: 'Units returned', w: '17%', num: true,
+     fmt: (v, r) => num(v) + (r.qty_charged ? `<span class="sub2">${num(r.qty_charged)} chargeable</span>` : '<span class="sub2">none chargeable</span>'),
+     title: (v, r) => num(v) + ' returned, ' + num(r.qty_charged || 0) + ' chargeable'},
+    {k: 'rate', h: '₹ / unit', w: '12%', num: true, cls: 'hn2',
+     fmt: v => v == null ? '—' : '₹' + num(v, 2)},
+    {k: 'fee', h: 'Fee charged', w: '19%', num: true, cls: 'barcell',
+     fmt: barFmt(inr, () => maxI), title: v => inrFull(v)},
+    {k: 'lines', h: 'Lines', w: '12%', num: true, cls: 'hn', fmt: v => num(v)},
+  ], irows, {empty: 'No items match these filters.'});
+}
+
+/* Contractual rate distribution, as reported on the extract. Ordered by money,
+   and the rate values are the category labels -- so "the fee lands on 5.0 and
+   2.5" is readable directly. */
+function drawRecallRates(rows) {
+  const t = T();
+  const tot = rows.reduce((a, r) => a + (r.fee || 0), 0);
+  const main = rows.filter(r => r.fee / (tot || 1) >= 0.01);
+  $('recallRateHint').textContent = main.length
+    ? `${pct(main.reduce((a, r) => a + r.fee, 0) / (tot || 1) * 100)} of the charge `
+      + `sits on ${main.map(r => '₹' + num(r.rate, 2)).join(' / ')} per unit`
+    : 'no chargeable lines';
+  chart('chRecallRate').setOption(Object.assign(baseOpt(), {
+    grid: {left: 12, right: 84, top: 8, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;',
+      formatter: p => { const r = rows[p.dataIndex] || {};
+        return `<b>₹${num(r.rate, 2)} per unit</b><br>${inrFull(r.fee)} charged`
+             + `<br>${num(r.qty)} chargeable units over ${num(r.lines)} line(s)`
+             + `<br>${num(r.contracts)} contract(s) on this rate`
+             + `<br><span style="color:${t.muted}">${pct(r.fee / (tot || 1) * 100)} of the charge</span>`; }},
+    xAxis: valAxis(t, {axisLabel: {formatter: money}}),
+    yAxis: catAxis(t, {inverse: true, data: rows.map(r => '₹' + num(r.rate, 2) + '/unit')}),
+    series: [{type: 'bar', barMaxWidth: 18, data: rows.map(r => r.fee),
+      itemStyle: {color: t.s1, borderRadius: CAP_H},
+      label: {show: true, position: 'right', color: t.text2, fontSize: 11,
+        formatter: p => inr(p.value)}}],
+  }), true);
+}
+
+/* ==========================================================================
+   6. CONTRACTS
+   ========================================================================== */
+let CON = null;
+
+async function loadContracts() {
+  const x = S.meta.extra || {};
+  ['chConState','chConPurchase','chConTimeline','chConTerm','chConDim'].forEach(watch);
+  CON = await api('/api/contracts/insights');
+  const opts = await api('/api/contracts/options');
+  (opts.states || []).forEach(o => $('conState').insertAdjacentHTML('beforeend',
+    `<option value="${esc(o.value)}">${esc(o.value)} (${o.n})</option>`));
+  (opts.purchase || []).forEach(o => $('conPurchase').insertAdjacentHTML('beforeend',
+    `<option value="${esc(o.value)}">${esc(o.value)} (${o.n})</option>`));
+
+  $('conTiles').innerHTML = [
+    tile('Contracts', num(+x.con_contracts || 0),
+         `${num(+x.con_mfrs || 0)} manufacturers`, 'hero accent'),
+    tile('APPROVED', num(+x.con_approved || 0),
+         pct((+x.con_approved || 0) / (+x.con_contracts || 1) * 100) + ' of the book'),
+    tile('Pending approval', num(+x.con_pending || 0),
+         `${num(+x.con_expired || 0)} expired`),
+    tile('Executed', esc(x.con_first_exec || '—').slice(0, 7),
+         `through ${esc(x.con_last_exec || '—')} · updated ${esc(x.con_last_update || '—')}`),
+  ].join('');
+
+  // Term + dimension pickers are driven by whatever the build produced.
+  const terms = [...new Map((CON.terms || []).map(t => [t.term, t])).values()];
+  terms.forEach(t => $('conTermSel').insertAdjacentHTML('beforeend',
+    `<option value="${esc(t.term)}">${esc(t.label)}</option>`));
+  S.con.term = terms.length ? terms[0].term : '';
+  const dims = [...new Map((CON.dims || []).map(d => [d.dim, d])).values()]
+    .filter(d => d.dim !== 'contract_state' && d.dim !== 'type_of_purchase');
+  dims.forEach(d => $('conDimSel').insertAdjacentHTML('beforeend',
+    `<option value="${esc(d.dim)}">${esc(d.label)}</option>`));
+  S.con.dim = dims.length ? dims[0].dim : '';
+
+  drawClauses();
+  drawConMix();
+  drawConTimeline();
+  drawConTerm();
+  drawConDim();
+  await refreshContracts();
+}
+
+function drawClauses() {
+  const clauses = CON.clauses || [];
+  const groups = [...new Set(clauses.map(c => c.clause_group))];
+  const html = groups.map(g => {
+    const inG = clauses.filter(c => c.clause_group === g)
+      .sort((a, b) => b.pct_enabled - a.pct_enabled);
+    return `<div class="mgroup">${esc(g)}</div>` + inG.map(c => {
+      const w = Math.max(0, Math.min(100, c.pct_enabled || 0));
+      const val = c.modal_value != null && c.modal_value !== ''
+        ? ` · typically ${esc(c.modal_value)}${c.unit ? ' ' + esc(c.unit) : ''}` : '';
+      return `<div class="mrow">
+        <span class="nm" title="${esc(c.label)}: ${num(c.enabled)} enabled, ${num(c.declined)} declined, ${num(c.not_set)} not set${val}">
+          ${esc(c.label)}</span>
+        <span class="pc">${pct(c.pct_enabled, 0)}</span>
+        <div class="track" title="${num(c.enabled)} of ${num(c.contracts)} contracts">
+          <div class="fill" style="width:${w}%"></div></div>
+        <span class="hint" style="grid-column:1/-1;margin-top:-2px">${num(c.enabled)} on · ${num(c.declined)} declined · ${num(c.not_set)} not set${val}</span>
+      </div>`;
+    }).join('');
+  }).join('');
+  $('clauseMeters').innerHTML = html || '<div class="empty">No clauses tracked.</div>';
+}
+
+function dimRows(dim) {
+  return (CON.dims || []).filter(d => d.dim === dim).sort((a, b) => b.contracts - a.contracts);
+}
+
+function drawConMix() {
+  hbar('chConState', dimRows('contract_state'), 'CONTRACT STATE');
+  hbar('chConPurchase', dimRows('type_of_purchase'), 'TYPE OF PURCHASE');
+}
+
+/* Shared horizontal-bar helper for the contract mixes. Colour by category
+   identity, fixed slot order, tail folded into Other by the caller. */
+function hbar(id, rows, title, valueKey) {
+  const t = T(), key = valueKey || 'contracts';
+  const shown = rows.slice(0, 8);
+  chart(id).setOption(Object.assign(baseOpt(), {
+    grid: {left: 12, right: 62, top: 22, bottom: 4, containLabel: true},
+    title: {text: title, left: 0, top: 0,
+      textStyle: {color: t.muted, fontSize: 11, fontWeight: 600}},
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;max-width:300px;white-space:normal;',
+      formatter: p => { const r = shown[p.dataIndex];
+        return `<b>${esc(r.value)}</b><br>${num(r.contracts)} contracts`
+             + `<br>${num(r.mfrs)} manufacturers · ${num(r.approved)} approved`; }},
+    xAxis: valAxis(t),
+    yAxis: catAxis(t, {inverse: true, data: shown.map(r => clip(r.value, 22)),
+      axisLabel: {width: 120, overflow: 'truncate'}}),
+    series: [{type: 'bar', barMaxWidth: 16, itemStyle: {borderRadius: CAP_H},
+      data: shown.map(r => r[key]), itemStyle: {color: t.s1, borderRadius: CAP_H},
+      label: {show: true, position: 'right', color: t.text2, fontSize: 11,
+        formatter: p => num(p.value)}}],
+  }), true);
+}
+
+function drawConTimeline() {
+  const t = T(), rows = CON.timeline || [];
+  const months = [...new Set(rows.map(r => r.month))].sort();
+  const states = [...new Set(rows.map(r => r.contract_state))];
+  // Same status tokens as the KAM tab, so a state means one colour everywhere.
+  const stColor = s => stateColor(t, s);
+  const byKey = new Map(rows.map(r => [r.contract_state + ' ' + r.month, r.contracts]));
+  const series = states.map(s => ({
+    name: s, type: 'bar', stack: 'c', barMaxWidth: 22,
+    itemStyle: {color: stColor(s), borderColor: t.surface, borderWidth: 1},
+    data: months.map(m => byKey.get(s + ' ' + m) || 0),
+  }));
+  if (series.length) series[series.length - 1].itemStyle.borderRadius = CAP_V;
+  chart('chConTimeline').setOption(Object.assign(baseOpt(), {
+    grid: {left: 6, right: 16, top: 12, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'axis', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;',
+      axisPointer: {type: 'shadow', shadowStyle: {color: t.sunken}},
+      formatter: ps => {
+        const tot = ps.reduce((a, p) => a + (p.value || 0), 0);
+        return `<b>${esc(ps[0].axisValue)}</b> — ${num(tot)} executed<br>`
+          + ps.filter(p => p.value > 0).map(p =>
+            `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${p.color};margin-right:6px"></span>`
+            + `${esc(p.seriesName)} ${num(p.value)}`).join('<br>');
+      }},
+    xAxis: timeAxis(t, {data: months.map(monthLabel)}),
+    yAxis: valAxis(t, {name: 'contracts'}),
+    series,
+  }), true);
+  setLegend('lgConTimeline', states.map(s => ({label: s, color: stColor(s)})));
+}
+
+function drawConTerm() {
+  const t = T();
+  const rows = (CON.terms || []).filter(r => r.term === S.con.term);
+  const label = rows.length ? rows[0].label : '';
+  const unit = rows.length ? rows[0].unit : '';
+  const maxTerm = Math.max(1, ...rows.map(r => r.contracts));
+  chart('chConTerm').setOption(Object.assign(baseOpt(), {
+    grid: {left: 6, right: 16, top: 16, bottom: 4, containLabel: true},
+    tooltip: {trigger: 'item', confine: true, borderColor: t.axis,
+      backgroundColor: t.surface, textStyle: {color: t.text1, fontSize: 12},
+      extraCssText: 'border-radius:8px;',
+      formatter: p => { const r = rows[p.dataIndex];
+        return `<b>${esc(label)} = ${num(r.value, 2)} ${esc(unit)}</b><br>`
+             + `${num(r.contracts)} contracts · ${num(r.approved)} approved`; }},
+    xAxis: timeAxis(t, {data: rows.map(r => num(r.value, 2)),
+      name: unit, nameLocation: 'end'}),
+    yAxis: valAxis(t, {name: 'contracts'}),
+    series: [{type: 'bar', barMaxWidth: 24,
+      itemStyle: {color: t.s1, borderRadius: CAP_V},
+      data: rows.map(r => r.contracts),
+      label: {show: true, position: 'top', color: t.text2, fontSize: 11,
+        // Only the bars that carry weight get a number; the rest would be a
+        // row of "1"s under the axis, which reads as noise and goes unread.
+        formatter: p => p.value >= maxTerm * 0.06 ? num(p.value) : ''}}],
+  }), true);
+}
+
+function drawConDim() {
+  const rows = dimRows(S.con.dim);
+  const lbl = rows.length ? rows[0].label : '';
+  hbar('chConDim', rows, (lbl || '').toUpperCase());
+}
+
+async function refreshContracts() {
+  busy($('conTblWrap'), true);
+  const d = await api('/api/contracts/list', {
+    q: S.con.q, state: S.con.state, purchase: S.con.purchase,
+    clause: S.con.clause, sort: S.con.sort, limit: 500});
+  busy($('conTblWrap'), false);
+  const rows = d.rows || [], tot = d.total || {};
+  $('conTblMeta').textContent = `${num(tot.n)} contracts · ${num(tot.mfrs)} manufacturers`
+    + (rows.length < (tot.n || 0) ? ` · showing ${num(rows.length)}` : '');
+
+  const flag = (on, txt) => on
+    ? `<span class="badge on"><span class="ic">✓</span>${txt}</span>`
+    : `<span class="badge off">—</span>`;
+  renderTable('conTbl', [
+    {k: 'mfr', h: 'Manufacturer', w: '26%', title: (v, r) => v + ' — contract ' + r.contract_id,
+     fmt: (v, r) => esc(clip(v, 46))
+       + `<span class="sub2">#${esc(r.contract_id)} · ${esc(r.buyer || '')}</span>`},
+    {k: 'contract_state', h: 'State', w: '12%', fmt: v => stateBadge(v)},
+    {k: 'type_of_purchase', h: 'Purchase', w: '13%', cls: 'hn2', title: v => v,
+     fmt: v => esc(v && v !== 'NaN' ? clip(v, 20) : '—')},
+    {k: 'execution_date', h: 'Executed', w: '11%', fmt: v => esc(v || '—')},
+    {k: 'rtv_days', h: 'RTV d', w: '7%', num: true, cls: 'hn', fmt: v => v == null ? '—' : num(v)},
+    {k: 'credit_days', h: 'Credit d', w: '8%', num: true, cls: 'hn', fmt: v => v == null ? '—' : num(v)},
+    {k: 'kam_charges', h: 'KAM ₹/mo', w: '11%', num: true,
+     fmt: (v, r) => r.has_kam ? inrFull(v || 0) : '<span class="dim">—</span>'},
+    {k: 'clauses_enabled', h: 'Clauses', w: '8%', num: true, fmt: v => num(v)},
+    {k: 'updated_at', h: 'Updated', w: '10%', cls: 'hn', fmt: v => esc(v || '—')},
+  ], rows, {click: r => openContractDrawer(r), empty: 'No contracts match these filters.'});
+}
+
+function kv(k, v) {
+  return `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${
+    v == null || v === '' || v === 'NaN' ? '<span class="dim">not set</span>' : esc(v)}</span></div>`;
+}
+
+async function openContractDrawer(row) {
+  openDrawer(clip(row.mfr, 80), `Contract ${row.contract_id} · ${row.contract_state}`,
+    '<div class="empty">Loading…</div>');
+  const d = await api('/api/contracts/detail', {contract_id: row.contract_id});
+  const groups = [...new Set((d.clauses || []).map(c => c.clause_group))];
+  const isYes = v => String(v || '').trim().toUpperCase() === 'YES';
+  const isNo = v => String(v || '').trim().toUpperCase() === 'NO';
+  const clauseHTML = groups.map(g => `
+    <div class="dsec">${esc(g)}</div>
+    <div class="kvs">${(d.clauses || []).filter(c => c.clause_group === g).map(c => {
+      const on = isYes(c.enabled_value), no = isNo(c.enabled_value);
+      const badge = on ? '<span class="badge on"><span class="ic">✓</span>Enabled</span>'
+        : no ? '<span class="badge off">Declined</span>'
+        : '<span class="badge">Not set</span>';
+      const term = c.term_value != null && c.term_value !== '' && c.term_value !== 'NaN'
+        ? ` <span class="mono">${esc(c.term_value)}${c.unit ? ' ' + esc(c.unit) : ''}</span>` : '';
+      return `<div class="kv"><span class="k">${esc(c.label)}</span>
+        <span class="v">${badge}${term}</span></div>`;
+    }).join('')}</div>`).join('');
+
+  $('drawerBody').innerHTML =
+    `<div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr))">
+       ${tile('Clauses enabled', num(row.clauses_enabled))}
+       ${tile('RTV days', row.rtv_days == null ? '—' : num(row.rtv_days))}
+       ${tile('Credit days', row.credit_days == null ? '—' : num(row.credit_days))}
+       ${tile('KAM ₹ / month', row.has_kam ? inrFull(row.kam_charges || 0) : '—')}
+     </div>
+     <div class="dsec">Identity</div>
+     <div class="kvs">
+       ${kv('Contract ID', d.row.contract_id)}${kv('Manufacturer', d.row.manufacturer)}
+       ${kv('Manufacturer ID', d.row.manufacturer_id)}${kv('Buying entity', d.row.company_buyer_name)}
+       ${kv('State', d.row.contract_state)}${kv('Executed', (d.row.execution_date || '').slice(0, 10))}
+       ${kv('Effective', (d.row.effective_date || '').slice(0, 10))}
+       ${kv('Valid until cancelled', d.row.valid_until_cancelled)}
+       ${kv('Last updated', (d.row.updated_at || '').slice(0, 10))}
+     </div>
+     ${clauseHTML}
+     <div class="dsec">Other terms</div>
+     <div class="kvs">${(d.fields || [])
+        .filter(f => !['contract_id','manufacturer','manufacturer_id','company_buyer_name',
+                       'company_buyer_id','contract_state','execution_date','effective_date',
+                       'updated_at','valid_until_cancelled'].includes(f.field))
+        .map(f => kv(f.field.replace(/_/g, ' '), f.value)).join('')}</div>`;
+}
+
+/* ==========================================================================
+   6. DATA
+   ========================================================================== */
+function loadData() {
+  const notes = S.meta.notes || [];
+  $('notesList').innerHTML = notes.length
+    ? notes.map(n => noteHTML(n.level, n.label, esc(n.note))).join('')
+    : noteHTML('info', '', 'No caveats — every dataset loaded clean and every fee '
+        + 'definition reconciled against its source column.');
+  renderTable('filesTbl', [
+    {k: 'label', h: 'Dataset', w: '34%', title: v => v, fmt: v => esc(v)},
+    {k: 'file', h: 'File', w: '48%', title: v => v, fmt: v => esc(v)},
+    {k: 'size_mb', h: 'MB', w: '18%', num: true, fmt: v => num(v, 1)},
+  ], S.meta.files || [], {empty: 'No source files recorded.'});
+  const m = S.meta.meta || {};
+  $('buildMeta').textContent =
+    `Built ${m.built_at || '—'} in ${m.build_seconds || '?'}s from ${m.data_dir || '?'} · `
+    + `${((+m.source_bytes || 0) / 1e6).toFixed(0)} MB of Parquet → ${S.meta.db_mb} MB of rollups · `
+    + `defect rate ₹${m.defect_rate || '?'}/unit · KAM accrued to ${m.kam_accrual_end || '?'}`;
+}
+
+/* ==========================================================================
+   Drawer
+   ========================================================================== */
+function openDrawer(title, sub, body) {
+  $('drawerTitle').textContent = title;
+  $('drawerSub').textContent = sub || '';
+  $('drawerBody').innerHTML = body || '';
+  $('drawer').classList.add('open');
+  $('drawer').setAttribute('aria-hidden', 'false');
+  $('scrim').classList.add('open');
+}
+function closeDrawer() {
+  $('drawer').classList.remove('open');
+  $('drawer').setAttribute('aria-hidden', 'true');
+  $('scrim').classList.remove('open');
+}
+
+/* ==========================================================================
+   Wiring
+   ========================================================================== */
+function wire() {
+  $('scrim').onclick = closeDrawer;
+  $('drawerClose').onclick = closeDrawer;
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+  // --- cities
+  $('cSearch').oninput = debounce(e => { S.city.q = e.target.value; refreshCities(); });
+  ['cScope','cBand','cBilling','cSort'].forEach(id => {
+    $(id).onchange = e => {
+      S.city[{cScope: 'scope', cBand: 'band', cBilling: 'billing', cSort: 'sort'}[id]] = e.target.value;
+      refreshCities();
+    };
+  });
+  $('cCsv').onclick = () => dl('/api/cities', {
+    q: S.city.q, scope: S.city.scope, band: S.city.band,
+    billing: S.city.billing, sort: S.city.sort, limit: 5000});
+  // The map plots the whole master list, so only the measure changes here -- no
+  // refetch, and deliberately not wired to the search box or the scope select
+  // (see /api/cities/map on why scope cannot be honoured).
+  $('cMapMeasure').onchange = e => {
+    S.city.mapMeasure = e.target.value;
+    drawCityMap();
+  };
+
+  // --- satellite
+  ['sScope','sBucket','sType','sState'].forEach(id => {
+    $(id).onchange = e => {
+      S.sat[{sScope: 'scope', sBucket: 'bucket', sType: 'ptype', sState: 'state'}[id]] = e.target.value;
+      refreshSat();
+    };
+  });
+  $('satDimSeg').onclick = e => {
+    const b = e.target.closest('button[data-dim]'); if (b) setDim(b.dataset.dim);
+  };
+  $('sSearch').oninput = debounce(e => { S.sat.search = e.target.value; refreshSat(); });
+  $('sSort').onchange = e => { S.sat.sort = e.target.value; refreshSat(); };
+  $('sLimit').onchange = e => { S.sat.limit = +e.target.value; refreshSat(); };
+  $('sReset').onclick = () => {
+    S.sat.drill = {city: '', cityLabel: '', mfr: '', mfrLabel: '', item: '', itemLabel: ''};
+    setDim('city');
+  };
+  $('sCsv').onclick = () => S.sat.dim === 'facility'
+    ? dl('/api/sat/facilities', {scope: S.sat.scope, city: S.sat.drill.city, limit: 2000})
+    : dl('/api/sat/by', satParams({dim: S.sat.dim, search: S.sat.search,
+        sort: S.sat.sort, limit: 5000}));
+  $('fCsv').onclick = () => dl('/api/sat/facilities',
+    {scope: S.sat.scope, city: S.sat.drill.city, limit: 2000});
+
+  // --- defects
+  $('dType').onchange = e => { S.def.ctype = e.target.value; refreshDefects(); };
+  $('dSearch').oninput = debounce(e => { S.def.search = e.target.value; refreshDefects(); });
+  $('dLimit').onchange = e => { S.def.limit = +e.target.value; refreshDefects(); };
+  $('ngramSeg').onclick = async e => {
+    const b = e.target.closest('button[data-ngram]'); if (!b) return;
+    S.def.ngram = +b.dataset.ngram;
+    document.querySelectorAll('#ngramSeg button').forEach(x =>
+      x.setAttribute('aria-pressed', String(x === b)));
+    drawCloud(await api('/api/defects/terms',
+      {ctype: S.def.ctype, ngram: S.def.ngram, limit: 90}));
+  };
+  $('cloudTblBtn').onclick = () => {
+    S.def.cloudTable = !S.def.cloudTable;
+    $('cloudTblWrap').hidden = !S.def.cloudTable;
+    $('defCloud').hidden = false;   // the cloud stays; the table is additive
+    $('cloudTblBtn').textContent = S.def.cloudTable ? 'Hide table' : 'Table view';
+  };
+  $('dCsv').onclick = () => dl('/api/defects/by',
+    {dim: 'item', ctype: S.def.ctype, search: S.def.search, sort: 'qty', limit: 5000});
+  $('tCsv').onclick = () => dl('/api/defects/terms',
+    {ctype: S.def.ctype, ngram: S.def.ngram, limit: 500});
+
+  // --- kam
+  $('kState').onchange = e => { S.kam.state = e.target.value; refreshKam(); };
+  $('kMonth').onchange = e => { S.kam.month = e.target.value; refreshKam(); };
+  $('kSearch').oninput = debounce(e => { S.kam.search = e.target.value; refreshKam(); });
+  $('kCsv').onclick = () => dl('/api/kam/by_mfr',
+    {month: S.kam.month, state: S.kam.state, search: S.kam.search, limit: 5000});
+
+  // --- recall assistance
+  ['rMonth','rCharged'].forEach(id => {
+    $(id).onchange = e => {
+      S.recall[{rMonth: 'month', rCharged: 'charged'}[id]] = e.target.value;
+      refreshRecall();
+    };
+  });
+  $('rSearch').oninput = debounce(e => { S.recall.search = e.target.value; refreshRecall(); });
+  $('rLimit').onchange = e => { S.recall.limit = +e.target.value; refreshRecall(); };
+  // The item cut is the one with the long tail, so that is what the CSV exports.
+  $('rCsv').onclick = () => dl('/api/recall/by', {
+    dim: 'item', month: S.recall.month, charged: S.recall.charged,
+    search: S.recall.search, sort: 'fee', limit: 5000});
+
+  // --- contracts
+  $('conSearch').oninput = debounce(e => { S.con.q = e.target.value; refreshContracts(); });
+  ['conState','conPurchase','conClause','conSort'].forEach(id => {
+    $(id).onchange = e => {
+      S.con[{conState: 'state', conPurchase: 'purchase',
+             conClause: 'clause', conSort: 'sort'}[id]] = e.target.value;
+      refreshContracts();
+    };
+  });
+  $('conTermSel').onchange = e => { S.con.term = e.target.value; drawConTerm(); };
+  $('conDimSel').onchange = e => { S.con.dim = e.target.value; drawConDim(); };
+  $('conCsv').onclick = () => dl('/api/contracts/list', {
+    q: S.con.q, state: S.con.state, purchase: S.con.purchase,
+    clause: S.con.clause, sort: S.con.sort, limit: 5000});
+
+  window.addEventListener('hashchange', () => {
+    const h = location.hash.slice(1);
+    if (h && h !== S.tab) show(h);
+  });
+}
+
+boot().catch(e => {
+  document.querySelector('main').innerHTML =
+    noteHTML('error', 'Dashboard failed to start', esc(e.message));
+  console.error(e);
+});
+</script>
+</body>
+</html>
