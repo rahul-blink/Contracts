@@ -3256,11 +3256,11 @@ function drawConTimeline() {
   const states = [...new Set(rows.map(r => r.contract_state))];
   // Same status tokens as the KAM tab, so a state means one colour everywhere.
   const stColor = s => stateColor(t, s);
-  const byKey = new Map(rows.map(r => [r.contract_state + ' ' + r.month, r.contracts]));
+  const byKey = new Map(rows.map(r => [r.contract_state + '\x00' + r.month, r.contracts]));
   const series = states.map(s => ({
     name: s, type: 'bar', stack: 'c', barMaxWidth: 22,
     itemStyle: {color: stColor(s), borderColor: t.surface, borderWidth: 1},
-    data: months.map(m => byKey.get(s + ' ' + m) || 0),
+    data: months.map(m => byKey.get(s + '\x00' + m) || 0),
   }));
   if (series.length) series[series.length - 1].itemStyle.borderRadius = CAP_V;
   chart('chConTimeline').setOption(Object.assign(baseOpt(), {
