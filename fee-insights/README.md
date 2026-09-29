@@ -26,32 +26,39 @@ variant id), exclude it with an optional reason, restore it any time. Untick
 
 ## Manufacturer opt-in
 
-UI labels: **Opt-in confirmed / default** and **Opt-in confirmation
-pending** (renamed from "opted in" / "opted out"; the API fields and the
-stored file still say `opted_in` / `sat_optouts.json`, so nothing was
-migrated). Pending manufacturers are the ones removed from the figures.
+Three states per manufacturer (Satellite fees tab, bottom right):
 
-Satellite fees tab → *Manufacturer opt-in*: the same manufacturer list as
-the rest of the tab (sat_cube). Everyone is **opted in** by default, so an
-empty list is exactly the original numbers; mark a manufacturer *Opt out*
-(optional note) during the opt-in window and its fee drops out of the
-figures. *Opt back in* restores it.
+- **Confirmation pending** -- satellite clause is Yes in the contract, not yet
+  verified. The default; never stored.
+- **Confirmed** -- manually validated.
+- **Not_opted** -- manually marked as opted out. The only state removed from
+  the figures (tiles, breakdown, top-12, bucket/type splits, daily trend).
 
-- Stored in `SAT_OPTOUT_PATH` (default `sat_optouts.json` beside the item
-  list, i.e. `/state/` on the PVC). Only opt-outs are stored.
-- Applied wherever item exclusions are, **plus the daily trend** (mfr_id is
-  in `sat_day_city_mfr`'s grain). Still not applied: rate histogram,
-  serving-facility table, Satellite cities tab.
-- The same *Apply to figures below* tick-box switches both lists off.
-- An excluded item whose manufacturer is opted out is counted once, under
-  the opt-out.
-- Daily trend: a dashed *If all opted in* line (`fee_potential`) is the same
-  slice with no opt-outs; the subtitle sums the gap. Like the trend itself it
-  cannot drop item exclusions.
-- Breakdown table / top-12 chart: *Manufacturers* dropdown -- *Opted in*
-  (default), *All with satellite clause* (ignores opt-outs), *Opted out only*
-  (what opting in would add). Item exclusions apply in every mode; the
-  headline tiles always follow *Opted in*.
+Stored in `SAT_OPTOUT_PATH` (`/state/sat_optouts.json`). Entries written
+before the three-state model had no status; they were opt-outs and read as
+Not_opted, so no migration was needed and totals did not move.
+
+Bulk edit: *Download status* gives every manufacturer as CSV (`mfr_id,
+manufacturer, workdesk_cl_approval, optin_status, note, ...`). Edit
+`optin_status` / `note`, *Upload status*: the file is validated first
+(unknown ids, bad statuses, duplicates reject the whole file), the changes are
+shown for confirmation, then applied. Only manufacturers in the file change.
+
+Breakdown *Manufacturers* dropdown: Confirmed + pending (counted, default),
+Confirmed only, Confirmation pending only, Not_opted only, All with satellite
+clause. The dashed trend line is "If every Not_opted opted in". The
+manufacturer breakdown's contract column is labelled *Workdesk CL approval*.
+
+## KAM fees
+
+- Billable = **APPROVED + PENDING APPROVAL** (DRAFT is not). The state filter
+  has a *Billable* option; tiles are computed live (`/api/kam/kpis`).
+- **KAM addendum dates** (bottom of the KAM tab): per contract, stored in
+  `KAM_ADDENDA_PATH` (`/state/kam_addenda.json`). A contract with one accrues
+  from the addendum's month instead of its effective month. `kam_month` is
+  never modified: with addenda present the monthly spine is regenerated at
+  query time from `kam_contracts` (verified row-identical to `kam_month` when
+  the addendum equals the effective date); with none, `kam_month` is read as-is.
 
 ## Refreshing contracts (and KAM) from a Contract Details export
 

@@ -602,39 +602,6 @@ ul.exec li::marker { color: var(--muted); }
   <div class="tiles" id="satTiles"></div>
   <div id="satScopeNote"></div>
 
-  <div class="card" id="satExclCard" style="margin-bottom:14px">
-    <div class="hd"><h3>Exclusion list <span class="n" id="sxCount"></span></h3>
-      <div class="acts"><label class="hint" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer">
-        <input type="checkbox" id="sxApply" checked> Apply to figures below</label></div></div>
-    <p class="sub">Items here are taken out of the satellite fee calculation. The source data is
-      not changed: untick <em>Apply</em> to see the original figures, or restore an item to put it back.</p>
-    <div class="filters" style="margin:0 0 8px">
-      <label class="fld grow"><span>Find an item to exclude</span>
-        <input type="search" id="sxSearch" placeholder="Item name, manufacturer or variant id (min 2 characters)"></label>
-      <label class="fld grow"><span>Reason (optional, saved with the item)</span>
-        <input type="text" id="sxReason" maxlength="300" placeholder="e.g. exempt per contract amendment"></label>
-    </div>
-    <div class="tw scrollY" style="max-height:240px" id="sxResWrap" hidden><table id="sxResTbl"></table></div>
-    <div class="tw scrollY" style="max-height:260px;margin-top:8px"><table id="sxListTbl"></table></div>
-  </div>
-
-  <div class="card" id="satOptCard" style="margin-bottom:14px">
-    <div class="hd"><h3>Manufacturer opt-in <span class="n" id="soCount"></span></h3></div>
-    <p class="sub">The satellite fee clause is signed, but each manufacturer confirms in the opt-in window.
-      Everyone counts as <b>opt-in confirmed / default</b> until you mark them <b>opt-in confirmation pending</b>;
-      pending manufacturers are removed from the figures below (governed by the same <em>Apply</em> tick-box
-      as the exclusion list).</p>
-    <div class="filters" style="margin:0 0 8px">
-      <label class="fld grow"><span>Find a manufacturer</span>
-        <input type="search" id="soSearch" placeholder="Manufacturer name"></label>
-      <label class="fld"><span>Status</span>
-        <select id="soStatus"><option value="all">All</option><option value="in">Opt-in confirmed / default</option><option value="out">Opt-in confirmation pending</option></select></label>
-      <label class="fld grow"><span>Note (optional, saved when marked pending)</span>
-        <input type="text" id="soNote" maxlength="300" placeholder="e.g. awaiting confirmation, Oct window"></label>
-    </div>
-    <div class="tw scrollY" style="max-height:320px"><table id="soTbl"></table></div>
-  </div>
-
   <div class="filters">
     <label class="fld"><span>City scope</span>
       <select id="sScope">
@@ -651,19 +618,11 @@ ul.exec li::marker { color: var(--muted); }
 
   <div class="crumbs" id="satCrumbs"></div>
 
-  <div class="grid g-wide">
-    <div class="card">
-      <div class="hd"><h3 id="satTrendTitle">Daily satellite fee</h3></div>
-      <p class="sub" id="satTrendSub">Fee accrued per day for the current slice.</p>
-      <div class="chart" id="chSatTrend"></div>
-      <div class="legend" id="lgSatTrend"></div>
-    </div>
-    <div class="card">
-      <div class="hd"><h3>Fee composition</h3></div>
-      <p class="sub">MRP bucket and product type. Two charts, one measure each — never a shared axis.</p>
-      <div class="chart short" id="chSatBucket"></div>
-      <div class="chart short" id="chSatPtype" style="margin-top:8px"></div>
-    </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="hd"><h3 id="satTrendTitle">Daily satellite fee</h3></div>
+    <p class="sub" id="satTrendSub">Fee accrued per day for the current slice.</p>
+    <div class="chart" id="chSatTrend"></div>
+    <div class="legend" id="lgSatTrend"></div>
   </div>
 
   <div class="filters">
@@ -677,9 +636,11 @@ ul.exec li::marker { color: var(--muted); }
     </label>
     <label class="fld"><span>Manufacturers</span>
       <select id="sOptin" title="Which manufacturers the breakdown table and top-12 chart include">
-        <option value="in">Opt-in confirmed / default</option>
+        <option value="in">Confirmed + pending (counted)</option>
+        <option value="confirmed">Confirmed only</option>
+        <option value="pending">Confirmation pending only</option>
+        <option value="out">Not_opted only</option>
         <option value="all">All with satellite clause</option>
-        <option value="out">Opt-in confirmation pending only</option>
       </select></label>
     <label class="fld grow"><span>Search within breakdown</span>
       <input type="search" id="sSearch" placeholder="Filter the rows below"></label>
@@ -711,7 +672,13 @@ ul.exec li::marker { color: var(--muted); }
     </div>
   </div>
 
-  <div class="grid g2">
+  <div class="grid g3">
+    <div class="card">
+      <div class="hd"><h3>Fee composition</h3></div>
+      <p class="sub">MRP bucket and product type. Two charts, one measure each — never a shared axis.</p>
+      <div class="chart short" id="chSatBucket"></div>
+      <div class="chart short" id="chSatPtype" style="margin-top:8px"></div>
+    </div>
     <div class="card">
       <div class="hd"><h3>Per-unit fee rates driving the total</h3></div>
       <p class="sub">Top 15 rates by fee contributed. <b>fee_amt is a rate, not money</b> — this is a histogram over rate values, never a sum of them.</p>
@@ -723,6 +690,45 @@ ul.exec li::marker { color: var(--muted); }
       <p class="sub">Which mother facility the satellite fee sits behind, for the current city drill.</p>
       <div class="tw scrollY" style="max-height:300px" id="satFacWrap"><table id="satFacTbl"></table></div>
     </div>
+  </div>
+
+  <div class="grid g2">
+  <div class="card" id="satExclCard">
+    <div class="hd"><h3>Exclusion list <span class="n" id="sxCount"></span></h3>
+      <div class="acts"><label class="hint" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer">
+        <input type="checkbox" id="sxApply" checked> Apply to figures below</label></div></div>
+    <p class="sub">Items here are taken out of the satellite fee calculation. The source data is
+      not changed: untick <em>Apply</em> to see the original figures, or restore an item to put it back.</p>
+    <div class="filters" style="margin:0 0 8px">
+      <label class="fld grow"><span>Find an item to exclude</span>
+        <input type="search" id="sxSearch" placeholder="Item name, manufacturer or variant id (min 2 characters)"></label>
+      <label class="fld grow"><span>Reason (optional, saved with the item)</span>
+        <input type="text" id="sxReason" maxlength="300" placeholder="e.g. exempt per contract amendment"></label>
+    </div>
+    <div class="tw scrollY" style="max-height:240px" id="sxResWrap" hidden><table id="sxResTbl"></table></div>
+    <div class="tw scrollY" style="max-height:300px;margin-top:8px"><table id="sxListTbl"></table></div>
+  </div>
+  <div class="card" id="satOptCard">
+    <div class="hd"><h3>Manufacturer opt-in <span class="n" id="soCount"></span></h3>
+      <div class="acts">
+        <button class="btn sm" id="soExport" title="Every manufacturer with its current status, as CSV">↓ Download status</button>
+        <button class="btn sm" id="soImportBtn" title="Re-upload an edited download">↑ Upload status</button>
+        <input type="file" id="soImport" accept=".csv,text/csv" hidden>
+      </div></div>
+    <p class="sub"><b>Confirmation pending</b>: satellite clause is Yes in the contract, yet to be verified (default).
+      <b>Confirmed</b>: manually validated. <b>Not_opted</b>: manually marked as opted out &mdash; the only state
+      removed from the figures (same <em>Apply</em> tick-box as the exclusion list). To bulk-edit, download the status,
+      change <code>optin_status</code> / <code>note</code>, and upload it back; you see the changes before they apply.</p>
+    <div class="filters" style="margin:0 0 8px">
+      <label class="fld grow"><span>Find a manufacturer</span>
+        <input type="search" id="soSearch" placeholder="Manufacturer name"></label>
+      <label class="fld"><span>Status</span>
+        <select id="soStatus"><option value="all">All</option><option value="pending">Confirmation pending</option><option value="confirmed">Confirmed</option><option value="not_opted">Not_opted</option></select></label>
+      <label class="fld grow"><span>Note (optional, saved with a change)</span>
+        <input type="text" id="soNote" maxlength="300" placeholder="e.g. confirmed on call, Oct window"></label>
+    </div>
+    <div class="tw scrollY" style="max-height:420px"><table id="soTbl"></table></div>
+  </div>
   </div>
 </section>
 
@@ -805,8 +811,9 @@ ul.exec li::marker { color: var(--muted); }
     <label class="fld"><span>Contract state</span>
       <select id="kState">
         <option value="all">All states (accrued)</option>
-        <option value="APPROVED">APPROVED only (billable)</option>
-        <option value="PENDING APPROVAL">PENDING APPROVAL</option>
+        <option value="billable">Billable (APPROVED + PENDING APPROVAL)</option>
+        <option value="APPROVED">APPROVED only</option>
+        <option value="PENDING APPROVAL">PENDING APPROVAL only</option>
         <option value="DRAFT">DRAFT</option>
       </select></label>
     <label class="fld"><span>Month</span><select id="kMonth"><option value="">All months (accrued to date)</option></select></label>
@@ -819,7 +826,7 @@ ul.exec li::marker { color: var(--muted); }
   <div class="card">
     <div class="hd"><h3>Total KAM fee per month</h3>
       <div class="acts"><span class="hint" id="kamTotNote"></span></div></div>
-    <p class="sub">Each contract accrues its monthly KAM charge from the month it went effective, split by contract state. Every KAM contract is valid-until-cancelled, so nothing stops accruing — the total rises as contracts are added. Only the APPROVED band is billable today.</p>
+    <p class="sub">Each contract accrues its monthly KAM charge from the month it went effective — or from its KAM addendum date, where one is set below — split by contract state. Every KAM contract is valid-until-cancelled, so nothing stops accruing. APPROVED and PENDING APPROVAL are billable; DRAFT is not.</p>
     <div class="chart tall" id="chKamTotal"></div>
     <div class="legend" id="lgKamTotal"></div>
   </div>
@@ -840,12 +847,29 @@ ul.exec li::marker { color: var(--muted); }
     </div>
     <div class="card">
       <div class="hd"><h3>Contract state of the KAM cohort</h3></div>
-      <p class="sub">The gap between accrued and billable. Only APPROVED contracts are live today.</p>
+      <p class="sub">APPROVED and PENDING APPROVAL contracts are billable; DRAFT is contracted but not billable.</p>
       <div class="chart short" id="chKamState"></div>
       <div class="hd" style="margin-top:14px"><h3>Monthly charge tiers</h3></div>
       <p class="sub">Contracted ₹/month across the cohort.</p>
       <div class="tw" id="kamChargeWrap"><table id="kamChargeTbl"></table></div>
     </div>
+  </div>
+
+  <div class="card" id="kamAddCard">
+    <div class="hd"><h3>KAM addendum dates <span class="n" id="kaCount"></span></h3></div>
+    <p class="sub">Where KAM was added to a contract by addendum, set the addendum date: that contract's KAM charge then
+      accrues from the addendum's month instead of the contract's effective date. Stored separately — the contract data is
+      not changed, and removing a date restores the original accrual.</p>
+    <div class="filters" style="margin:0 0 8px">
+      <label class="fld grow"><span>KAM contract</span>
+        <input type="search" id="kaContract" list="kaOptions" placeholder="Type a manufacturer or contract id"></label>
+      <datalist id="kaOptions"></datalist>
+      <label class="fld"><span>Addendum date</span><input type="date" id="kaDate"></label>
+      <label class="fld grow"><span>Note (optional)</span>
+        <input type="text" id="kaNote" maxlength="300" placeholder="e.g. KAM addendum signed"></label>
+      <button class="btn" id="kaSave">Save date</button>
+    </div>
+    <div class="tw scrollY" style="max-height:300px"><table id="kaTbl"></table></div>
   </div>
 </section>
 
@@ -1351,7 +1375,7 @@ function renderTable(tblId, cols, rows, opts) {
   // header cell alongside its column, or the header row goes out of alignment.
   const head = cols.map(c =>
     `<th class="${c.num ? 'num' : ''}${c.cls ? ' ' + c.cls : ''}" ${
-      c.w ? `style="width:${c.w}"` : ''}>${esc(c.h)}</th>`).join('');
+      c.w ? `style="width:${c.w}${c.hwrap ? ';white-space:normal;overflow:visible' : ''}"` : ''}>${esc(c.h)}</th>`).join('');
   const body = rows.map((r, i) => {
     const tds = cols.map(c => {
       const raw = r[c.k];
@@ -1943,37 +1967,72 @@ async function loadSat() {
   await Promise.all([refreshSat(), loadExcl(), loadOptin()]);
 }
 
-/* ---------- manufacturer opt-in ---------- */
+/* ---------- manufacturer opt-in ----------
+   Three states; only Not_opted is removed from the figures. Stored server-side
+   (never fees.duckdb), so every change is instant and reversible. */
+const OPTIN_LABEL = {pending: 'Confirmation pending', confirmed: 'Confirmed', not_opted: 'Not_opted'};
+function optinBadge(st, short) {
+  const cls = st === 'confirmed' ? 'on' : st === 'not_opted' ? 'warn' : '';
+  const txt = short ? {pending: 'Pending', confirmed: 'Confirmed', not_opted: 'Not_opted'}[st || 'pending']
+                    : OPTIN_LABEL[st || 'pending'];
+  return `<span class="badge ${cls}">${esc(txt)}</span>`;
+}
 async function loadOptin() {
   let d;
   try {
     d = await api('/api/sat/optin', {search: $('soSearch').value.trim(),
-      status: $('soStatus').value, limit: 200});
+      status: $('soStatus').value, limit: 300});
   } catch (e) {
     $('soTbl').innerHTML = `<tbody><tr><td class="empty">${esc('Opt-in list unavailable: ' + e.message)}</td></tr></tbody>`;
     return;
   }
   const t = d.total || {};
-  $('soCount').textContent = `${num(t.mfrs - t.opted_out)} of ${num(t.mfrs)} confirmed / default`
-    + (t.opted_out ? ` · ${num(t.opted_out)} confirmation pending (${inr(t.opted_out_fee)})` : '');
+  $('soCount').textContent = `${num(t.confirmed)} confirmed · ${num(t.pending)} pending · ${num(t.not_opted)} not opted`
+    + (t.not_opted ? ` (${inr(t.not_opted_fee)} removed)` : '');
   renderTable('soTbl', [
-    {k: 'mfr', h: 'Manufacturer', w: '34%', title: (v, r) => `${v} (id ${r.id})`,
+    {k: 'mfr', h: 'Manufacturer', w: '28%', title: (v, r) => `${v} (id ${r.id})`,
      fmt: (v, r) => `${esc(v || '—')}<span class="sub2">${num(r.items)} items · id ${esc(r.id)}</span>`},
-    {k: 'contract_state', h: 'Contract', w: '13%', cls: 'hn2', fmt: v => stateBadge(v)},
-    {k: 'fee', h: 'Fee (all data)', w: '15%', num: true, title: v => inrFull(v), fmt: v => inr(v)},
-    {k: 'opted_in', h: 'Status', w: '20%',
-     fmt: (v, r) => v ? '<span class="badge on">Confirmed / default</span>'
-       : `<span class="badge warn">Confirmation pending</span><span class="sub2">${esc(r.note || '')}${r.note ? ' · ' : ''}${esc(r.changed_at || '')}</span>`},
-    {k: 'id', h: '', w: '18%', num: true,
-     fmt: (v, r) => `<button class="btn sm" data-mfr="${esc(v)}" data-in="${r.opted_in ? '0' : '1'}">${r.opted_in ? 'Mark pending' : 'Mark confirmed'}</button>`},
+    {k: 'contract_state', h: 'Workdesk CL approval', w: '21%', hwrap: true, cls: 'hn2', fmt: v => stateBadge(v)},
+    {k: 'fee', h: 'Fee (all data)', w: '14%', num: true, title: v => inrFull(v), fmt: v => inr(v)},
+    {k: 'status', h: 'Opt-in', w: '35%',
+     fmt: (v, r) => `<select class="soSel" data-mfr="${esc(r.id)}" aria-label="Opt-in status for ${esc(r.mfr)}">`
+       + ['pending', 'confirmed', 'not_opted'].map(o =>
+           `<option value="${o}"${o === v ? ' selected' : ''}>${OPTIN_LABEL[o]}</option>`).join('')
+       + `</select>${r.note || r.changed_at ? `<span class="sub2">${esc(r.note || '')}${r.note && r.changed_at ? ' · ' : ''}${esc(r.changed_at || '')}</span>` : ''}`},
   ], d.rows || [], {empty: 'No manufacturer matches.'});
-  $('soTbl').querySelectorAll('button[data-mfr]').forEach(b => b.onclick = async () => {
-    b.disabled = true;
-    try { await apiSend('POST', '/api/sat/optin', {mfr_id: b.dataset.mfr,
-            opted_in: b.dataset.in === '1', note: $('soNote').value}); }
-    catch (e) { alert('Could not update: ' + e.message); b.disabled = false; return; }
+  const more = (d.matches || 0) - (d.rows || []).length;
+  if (more > 0) $('soTbl').insertAdjacentHTML('beforeend',
+    `<tbody><tr><td colspan="4" class="empty">${num(more)} more — narrow the search, or download the full status.</td></tr></tbody>`);
+  $('soTbl').querySelectorAll('select.soSel').forEach(sel => sel.onchange = async () => {
+    sel.disabled = true;
+    try { await apiSend('POST', '/api/sat/optin', {mfr_id: sel.dataset.mfr,
+            status: sel.value, note: $('soNote').value}); }
+    catch (e) { alert('Could not update: ' + e.message); sel.disabled = false; return; }
     loadOptin(); refreshSat();
   });
+}
+async function importOptin(file) {
+  const text = await file.text();
+  let d;
+  try { d = await apiSend('POST', '/api/sat/optin/import?dry_run=1', {csv: text}); }
+  catch (e) { alert('Upload rejected: ' + e.message); return; }
+  if (d.n_errors) {
+    alert(`Nothing applied — ${d.n_errors} row(s) have problems:\n\n`
+      + d.errors.slice(0, 15).map(e => `line ${e.line} (${e.mfr_id}): ${e.error}`).join('\n')
+      + '\n\nFix them and upload again.');
+    return;
+  }
+  if (!d.changes.length) { alert(`No changes: all ${num(d.unchanged)} row(s) already match.`); return; }
+  const by = {};
+  const what = c => c.from === c.to ? `${OPTIN_LABEL[c.to]} (note updated)` : `${OPTIN_LABEL[c.from]} → ${OPTIN_LABEL[c.to]}`;
+  d.changes.forEach(c => { const k = what(c); by[k] = (by[k] || 0) + 1; });
+  const lines = Object.entries(by).map(([k, n]) => `  ${k}: ${n}`).join('\n');
+  const eg = d.changes.slice(0, 8).map(c => `  ${c.mfr}: ${what(c)}`).join('\n');
+  if (!confirm(`Apply ${d.changes.length} change(s)? (${d.unchanged} unchanged)\n\n${lines}\n\ne.g.\n${eg}`)) return;
+  try { d = await apiSend('POST', '/api/sat/optin/import', {csv: text}); }
+  catch (e) { alert('Upload failed: ' + e.message); return; }
+  alert(d.applied ? `Applied ${d.changes.length} change(s).` : 'Nothing applied.');
+  loadOptin(); refreshSat();
 }
 
 /* ---------- exclusion list ----------
@@ -2030,7 +2089,7 @@ async function searchExcl() {
     {k: 'cities', h: 'Cities', w: '10%', num: true, cls: 'hn', fmt: v => num(v)},
     {k: 'variant_id', h: '', w: '14%', num: true,
      fmt: (v, r) => r.excluded ? '<span class="dim">excluded</span>'
-       : r.mfr_opted_out ? '<span class="dim" title="Opt-in confirmation is pending for its manufacturer, so it is already removed">mfr pending</span>'
+       : r.mfr_opted_out ? '<span class="dim" title="Its manufacturer is Not_opted, so it is already removed">mfr not opted</span>'
        : `<button class="btn sm" data-excl="${esc(v)}">Exclude</button>`},
   ], rows, {empty: 'No item with a satellite fee matches that search.'});
   $('sxResTbl').querySelectorAll('button[data-excl]').forEach(b => b.onclick = async () => {
@@ -2073,7 +2132,7 @@ async function refreshSat() {
   $('satTiles').innerHTML = [
     tile('Satellite fee — current slice', inr(kp.fee),
          scopeLabel() + (kp.excluded_items
-           ? (kp.exclusions_applied ? ` · ${inr(kp.excluded_fee)} removed` : ' · exclusions & pending off')
+           ? (kp.exclusions_applied ? ` · ${inr(kp.excluded_fee)} removed` : ' · exclusions & opt-outs off')
            : ''), 'hero accent'),
     tile('Net units sold', num(kp.net_qty),
          `${num(kp.qty_sold)} sold − ${num(kp.qty_returned)} returned`),
@@ -2097,14 +2156,14 @@ async function refreshSat() {
 
   if (kp.exclusions_applied && kp.excluded_items) {
     const bits = [];
-    if (kp.optout_mfrs) bits.push(`${num(kp.optout_mfrs)} manufacturer${kp.optout_mfrs > 1 ? 's' : ''} with opt-in confirmation pending `
+    if (kp.optout_mfrs) bits.push(`${num(kp.optout_mfrs)} Not_opted manufacturer${kp.optout_mfrs > 1 ? 's' : ''} `
       + `(${inrFull(kp.optout_fee)})`);
     if (kp.item_excl_items) bits.push(`${num(kp.item_excl_items)} excluded item${kp.item_excl_items > 1 ? 's' : ''} `
       + `(${inrFull(kp.item_excl_fee)})`);
-    $('satScopeNote').innerHTML += noteHTML('info', 'Exclusions & pending opt-ins applied',
+    $('satScopeNote').innerHTML += noteHTML('info', 'Exclusions & Not_opted applied',
       `${bits.join(' and ')} removed ${inrFull(kp.excluded_fee)} (${num(kp.excluded_net_qty)} net units) `
       + `from this slice. Totals, the breakdown table, the top-12 chart and the MRP bucket / product type `
-      + `charts reflect both. The daily trend reflects pending opt-ins`
+      + `charts reflect both. The daily trend reflects Not_opted`
       + (kp.item_excl_items ? ' but not item exclusions' : '') + `. The per-unit rate chart, `
       + `serving-facility table and the Satellite cities tab have no manufacturer or item detail, `
       + `so they still include everything.`);
@@ -2169,7 +2228,7 @@ function drawSatTrend(tr) {
   // Dashed and unfilled so it reads as "what it would be", not a second actual.
   const showPot = S.sat.excl;
   const potColor = CSSVar('--s3');
-  if (showPot) series.push(Object.assign(mk('If all pending confirm', 'fee_potential', potColor), {
+  if (showPot) series.push(Object.assign(mk('If every Not_opted opted in', 'fee_potential', potColor), {
     lineStyle: {width: 2, type: 'dashed', color: potColor},
     areaStyle: null, z: 1,
   }));
@@ -2192,8 +2251,8 @@ function drawSatTrend(tr) {
   const leg = showSplit
     ? [{label: 'On satellite list', color: T().s1, line: true},
        {label: 'Off list (not satellite)', color: T().s2, line: true}]
-    : (showPot ? [{label: 'Satellite fee (confirmed / default)', color: T().s1, line: true}] : []);
-  if (showPot) leg.push({label: 'If all pending confirm', color: potColor, line: true});
+    : (showPot ? [{label: 'Satellite fee (confirmed + pending)', color: T().s1, line: true}] : []);
+  if (showPot) leg.push({label: 'If every Not_opted opted in', color: potColor, line: true});
   setLegend('lgSatTrend', leg);   // one series -> no legend box; the card title names it
   const n = tr.length;
   let potTxt = '';
@@ -2201,8 +2260,8 @@ function drawSatTrend(tr) {
     const act = tr.reduce((a, r) => a + (r.fee || 0), 0);
     const pot = tr.reduce((a, r) => a + (r.fee_potential || 0), 0);
     potTxt = pot - act > 0.5
-      ? ` Pending opt-in confirmations hold back ${inrFull(pot - act)} over these days (${inr(act)} vs ${inr(pot)} if all pending confirm).`
-      : ' No manufacturer in this slice has opt-in confirmation pending, so the dashed line equals the actual.';
+      ? ` Not_opted manufacturers hold back ${inrFull(pot - act)} over these days (${inr(act)} vs ${inr(pot)} if they opted in).`
+      : ' No manufacturer in this slice is Not_opted, so the dashed line equals the actual.';
   }
   $('satTrendSub').textContent = n
     ? `${n} day${n > 1 ? 's' : ''}, ${tr[0].day} → ${tr[n - 1].day}. Fee accrued per day for the current slice.` + potTxt
@@ -2273,8 +2332,10 @@ function drawSatBy(by) {
     ? `${num(list.length)} facilities in this slice.`
     : `${num(tot.groups)} ${SAT_DIM_LABEL[dim].toLowerCase()} values in this slice, totalling ${inr(tot.fee)}. `
       + (dim === 'item' ? 'This is the item-level leaf.' : 'Click a row to drill down.')
-      + (!S.sat.excl ? '' : S.sat.optin === 'all' ? ' Showing every manufacturer with the satellite clause, confirmed or pending.'
-         : S.sat.optin === 'out' ? ' Showing only manufacturers with opt-in confirmation pending: fee that would be charged once they confirm.' : '');
+      + (!S.sat.excl ? '' : {all: ' Showing every manufacturer with the satellite clause, whatever its opt-in status.',
+         out: ' Showing only Not_opted manufacturers: fee that would be charged if they opted in.',
+         confirmed: ' Showing only Confirmed manufacturers.',
+         pending: ' Showing only manufacturers with confirmation pending.'}[S.sat.optin] || '');
 
   let maxFee = 0; list.forEach(r => { if (r.fee > maxFee) maxFee = r.fee; });
 
@@ -2290,10 +2351,9 @@ function drawSatBy(by) {
   if (dim === 'item') cols.push({k: 'variant_mrp', h: 'MRP', w: '9%', num: true,
     fmt: (v, r) => v == null ? '—' : '₹' + num(v),
     title: (v, r) => `MRP ₹${num(v)} vs threshold ₹${num(r.mrp_threshold)} → ${r.bucket || ''}`});
-  if (dim === 'mfr') cols.push({k: 'contract_state', h: 'Contract', w: '13%',
+  if (dim === 'mfr') { cols[0].w = '24%'; cols.push({k: 'contract_state', h: 'Workdesk CL approval', w: '19%', hwrap: true,
     cls: 'hn2', fmt: v => stateBadge(v)},
-    {k: 'opted_in', h: 'Opt-in', w: '11%', cls: 'hn2',
-     fmt: v => v === false ? '<span class="badge warn">Pending</span>' : '<span class="badge on">Confirmed</span>'});
+    {k: 'optin_status', h: 'Opt-in', w: '12%', cls: 'hn2', fmt: v => optinBadge(v, true)}); }
   if (isFac) cols.push({k: 'cities', h: 'Cities', w: '9%', num: true, fmt: v => num(v)});
   cols.push(
     {k: 'fee', h: 'Fee', w: '16%', num: true, cls: 'barcell',
@@ -2737,37 +2797,50 @@ async function loadKam() {
 }
 
 async function refreshKam() {
-  const x = S.meta.extra || {}, st = S.kam.state;
+  const st = S.kam.state;
   busy($('kamTblWrap'), true);
-  const [monthly, topMfr, byMfr] = await Promise.all([
+  const [monthly, topMfr, byMfr, kk] = await Promise.all([
     api('/api/kam/monthly', {state: st}),
     api('/api/kam/top_mfr', {state: st, month: S.kam.month, top: 12}),
     api('/api/kam/by_mfr', {month: S.kam.month, state: st, search: S.kam.search, limit: 400}),
+    api('/api/kam/kpis'),
   ]);
   busy($('kamTblWrap'), false);
+  S.kam.kpis = kk;
+  if (!periodOn()) $('nKam').textContent = inr(kk.fee_to_date || 0);
 
   const months = monthly.total || [];
   const latest = months.length ? months[months.length - 1] : {};
   const accrued = months.reduce((a, m) => a + (m.fee || 0), 0);
+  const notBillable = (kk.contracts || 0) - (kk.billable || 0);
   $('kamTiles').innerHTML = [
     tile('KAM fee accrued to date', inr(accrued),
-         `${num(months.length)} months, ${x.kam_first_month || '?'} → ${x.kam_last_month || '?'}`, 'hero accent'),
+         `${num(months.length)} months, ${kk.first_month || '?'} → ${kk.last_month || '?'}`, 'hero accent'),
     tile('Current monthly run-rate', inr(latest.fee),
          `${num(latest.contracts)} contracts live in ${monthLabel(latest.month)}`),
-    tile('KAM contracts', num(x.kam_contracts),
-         `${num(x.kam_approved)} APPROVED · ${num((+x.kam_contracts || 0) - (+x.kam_approved || 0))} not yet`),
-    tile('Billable accrued (APPROVED only)', inr(+x.kam_fee_to_date_approved || 0),
-         `${pct((+x.kam_fee_to_date_approved || 0) / (+x.kam_fee_to_date || 1) * 100)} of the accrued total`),
+    tile('KAM contracts', num(kk.contracts),
+         `${num(kk.approved)} APPROVED · ${num((kk.billable || 0) - (kk.approved || 0))} PENDING APPROVAL`
+         + (notBillable ? ` · ${num(notBillable)} other` : '')),
+    tile('Billable accrued (APPROVED + PENDING)', inr(kk.billable_to_date || 0),
+         `${pct((kk.billable_to_date || 0) / (kk.fee_to_date || 1) * 100)} of the accrued total`),
     tile('Contracts added in latest month', num(latest.new_contracts),
          monthLabel(latest.month)),
   ].join('');
 
-  $('kamNote').innerHTML = noteHTML('warn', 'Accrued is not billable',
-    `${num((+x.kam_contracts || 0) - (+x.kam_approved || 0))} of ${num(x.kam_contracts)} KAM contracts are `
-    + `<b>not APPROVED</b> — mostly PENDING APPROVAL. This view accrues all of them by default, so the `
-    + `headline ${inr(+x.kam_fee_to_date || 0)} is the contracted ceiling, not what is billable today `
-    + `(${inr(+x.kam_fee_to_date_approved || 0)}). Every KAM contract is also valid-until-cancelled, so `
-    + `accrual has no end date — it runs to ${esc((S.meta.meta || {}).kam_accrual_end || 'the latest contract month')}.`);
+  const delta = (kk.fee_to_date || 0) - (kk.fee_without_addenda || 0);
+  $('kamNote').innerHTML = (notBillable
+    ? noteHTML('warn', 'Not all accrued KAM is billable',
+        `${num(notBillable)} of ${num(kk.contracts)} KAM contracts are neither APPROVED nor PENDING APPROVAL `
+        + `(e.g. DRAFT). They accrue in the headline ${inr(kk.fee_to_date || 0)} but not in the billable `
+        + `${inr(kk.billable_to_date || 0)}.`)
+    : noteHTML('info', 'All KAM contracts are billable',
+        `Every KAM contract is APPROVED or PENDING APPROVAL, so accrued = billable (${inr(kk.billable_to_date || 0)}).`))
+    + (kk.addenda ? noteHTML('info', 'KAM addendum dates applied',
+        `${num(kk.addenda)} contract(s) accrue from their addendum date instead of the effective date — `
+        + `${delta < 0 ? '−' : '+'}${inrFull(Math.abs(delta))} versus contract start dates. See the list at the bottom.`) : '')
+    + noteHTML('info', 'Accrual end', `Every KAM contract is valid-until-cancelled, so accrual has no end date — `
+        + `it runs to ${esc(kk.accrual_end || 'the latest contract month')}.`);
+  loadAddenda();
 
   drawKamTotal(months, monthly.by_state || []);
   drawKamTop(topMfr);
@@ -2786,7 +2859,7 @@ function stateColor(t, s) {
 function drawKamTotal(months, byState) {
   const t = T();
   $('kamTotNote').textContent = S.kam.state === 'all' ? 'all contract states'
-    : S.kam.state + ' only';
+    : S.kam.state === 'billable' ? 'billable (APPROVED + PENDING APPROVAL)' : S.kam.state + ' only';
   // Stack the monthly total by contract state. That is the decomposition that
   // matters here: the APPROVED band is billable, everything above it is a
   // contracted ceiling.
@@ -2825,7 +2898,7 @@ function drawKamTotal(months, byState) {
     series,
   }), true);
   setLegend('lgKamTotal', states.map(s => ({
-    label: s + (s === 'APPROVED' ? ' — billable' : ' — contracted, not billable'),
+    label: s + (s === 'APPROVED' || s === 'PENDING APPROVAL' ? ' — billable' : ' — contracted, not billable'),
     color: stateColor(t, s)})));
 }
 
@@ -2835,7 +2908,7 @@ function drawKamTop(rows) {
     ? `KAM fee by manufacturer — ${monthLabel(S.kam.month)}`
     : 'KAM fee by manufacturer — accrued to date';
   $('kamTopHint').textContent =
-    `top ${rows.length} of ${num((S.meta.extra || {}).kam_contracts)}`;
+    `top ${rows.length} of ${num((S.kam.kpis || {}).contracts || (S.meta.extra || {}).kam_contracts)}`;
   // One series -> one colour for every bar. Rank is already the y order, so hue
   // would carry nothing.
   chart('chKamTop').setOption(Object.assign(baseOpt(), {
@@ -2875,7 +2948,8 @@ function drawKamState(st) {
       // rest are not-yet. Status colours ship with the text label beside them,
       // so hue never carries this alone.
       data: rows.map(r => ({value: r.contracts, itemStyle: {
-        color: r.contract_state === 'APPROVED' ? t.good : t.warning}})),
+        color: r.contract_state === 'APPROVED' ? t.good
+             : r.contract_state === 'PENDING APPROVAL' ? t.warning : SERIES_OTHER()}})),
       label: {show: true, position: 'right', color: t.text2, fontSize: 11,
         formatter: p => num(p.value)}}],
   }), true);
@@ -2887,6 +2961,51 @@ function drawKamState(st) {
   ], st.charges || [], {empty: 'No KAM charges.'});
 }
 
+/* ---------- KAM addendum dates ---------- */
+async function loadAddenda() {
+  let d;
+  try { d = await api('/api/kam/addenda'); }
+  catch (e) { $('kaTbl').innerHTML = `<tbody><tr><td class="empty">${esc('Addenda unavailable: ' + e.message)}</td></tr></tbody>`; return; }
+  const items = d.items || [];
+  $('kaCount').textContent = items.length ? `${num(items.length)} · ${d.fee_delta < 0 ? '−' : '+'}${inr(Math.abs(d.fee_delta))} vs start dates` : '';
+  renderTable('kaTbl', [
+    {k: 'mfr', h: 'Manufacturer', w: '30%', title: (v, r) => `${v} — contract ${r.contract_id}`,
+     fmt: (v, r) => `${esc(v || '—')}<span class="sub2">contract ${esc(r.contract_id)} · ${esc(r.contract_state || '')}</span>`},
+    {k: 'effective_date', h: 'Contract effective', w: '14%', fmt: v => esc(v || '—')},
+    {k: 'date', h: 'KAM addendum', w: '14%', fmt: (v, r) => `<b>${esc(v)}</b>${r.note ? `<span class="sub2">${esc(r.note)}</span>` : ''}`},
+    {k: 'months', h: 'Months', w: '9%', num: true, cls: 'hn2', fmt: (v, r) => num(v) + (r.first_month ? `<span class="sub2">from ${esc(monthLabel(r.first_month))}</span>` : '')},
+    {k: 'fee_delta', h: 'Fee change', w: '15%', num: true, title: v => inrFull(v),
+     fmt: v => (v < 0 ? '−' : v > 0 ? '+' : '') + inr(Math.abs(v))},
+    {k: 'contract_id', h: '', w: '12%', num: true,
+     fmt: v => `<button class="btn sm" data-rm="${esc(v)}">Remove</button>`},
+  ], items, {empty: 'No addendum dates — every KAM contract accrues from its effective date.'});
+  $('kaTbl').querySelectorAll('button[data-rm]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await apiSend('DELETE', '/api/kam/addenda/' + encodeURIComponent(b.dataset.rm)); }
+    catch (e) { alert('Could not remove: ' + e.message); b.disabled = false; return; }
+    refreshKam();
+  });
+}
+let KA_OPTS = [];
+async function kaSuggest() {
+  const term = $('kaContract').value.trim();
+  KA_OPTS = await api('/api/kam/contracts', {search: term.replace(/ —.*$/, ''), limit: 30});
+  $('kaOptions').innerHTML = KA_OPTS.map(o =>
+    `<option value="${esc(o.mfr)} — contract ${esc(o.contract_id)}">${esc(o.contract_state || '')} · effective ${esc(o.effective_date || '')}</option>`).join('');
+}
+async function kaSave() {
+  const v = $('kaContract').value.trim();
+  const m = v.match(/contract (\S+)$/) || v.match(/^(\d+)$/);
+  const hit = m ? {contract_id: m[1]} : (KA_OPTS.length === 1 ? KA_OPTS[0] : null);
+  if (!hit) { alert('Pick a KAM contract from the suggestions (or type its contract id).'); return; }
+  if (!$('kaDate').value) { alert('Choose the addendum date.'); return; }
+  try { await apiSend('POST', '/api/kam/addenda', {contract_id: hit.contract_id,
+          date: $('kaDate').value, note: $('kaNote').value}); }
+  catch (e) { alert('Could not save: ' + e.message); return; }
+  $('kaContract').value = ''; $('kaNote').value = '';
+  refreshKam();
+}
+
 function drawKamTable(d) {
   const rows = d.rows || [], tot = d.total || {};
   let max = 0; rows.forEach(r => { if (r.fee > max) max = r.fee; });
@@ -2896,10 +3015,11 @@ function drawKamTable(d) {
   $('kamTblMeta').textContent = `${num(tot.mfrs)} manufacturers · ${inr(tot.fee)}`;
   $('kamTblSub').textContent = S.kam.month
     ? `One row per manufacturer accruing KAM fee in ${monthLabel(S.kam.month)}.`
-    : 'Accrued = monthly charge × months since the contract went effective.';
+    : 'Accrued = monthly charge × months since the contract went effective (or since its KAM addendum date).';
   renderTable('kamTbl', [
     {k: 'mfr', h: 'Manufacturer', w: '34%', title: (v, r) => v + ' — contract ' + r.contract_id,
-     fmt: (v, r) => esc(clip(v, 52)) + `<span class="sub2">contract ${esc(r.contract_id)} · effective ${esc(r.effective_date || '—')}</span>`},
+     fmt: (v, r) => esc(clip(v, 52)) + `<span class="sub2">contract ${esc(r.contract_id)} · effective ${esc(r.effective_date || '—')}`
+       + (r.addendum_date ? ` · <b>KAM addendum ${esc(r.addendum_date)}</b>` : '') + `</span>`},
     {k: 'contract_state', h: 'State', w: '16%', fmt: v => stateBadge(v)},
     {k: 'monthly_fee', h: '₹ / month', w: '13%', num: true, fmt: v => inrFull(v)},
     {k: 'months', h: 'Mos', w: '8%', num: true, cls: 'hn2',
@@ -3575,6 +3695,9 @@ function wire() {
   $('sOptin').onchange = e => { S.sat.optin = e.target.value; refreshSat(); };
   $('soSearch').oninput = debounce(() => loadOptin());
   $('soStatus').onchange = () => loadOptin();
+  $('soExport').onclick = () => { window.location = new URL('/api/sat/optin/export', location.origin).toString(); };
+  $('soImportBtn').onclick = () => $('soImport').click();
+  $('soImport').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importOptin(f); };
 
   // --- defects
   $('dType').onchange = e => { S.def.ctype = e.target.value; refreshDefects(); };
@@ -3603,6 +3726,8 @@ function wire() {
   $('kState').onchange = e => { S.kam.state = e.target.value; refreshKam(); };
   $('kMonth').onchange = e => { S.kam.month = e.target.value; refreshKam(); };
   $('kSearch').oninput = debounce(e => { S.kam.search = e.target.value; refreshKam(); });
+  $('kaContract').oninput = debounce(() => kaSuggest().catch(() => {}));
+  $('kaSave').onclick = () => kaSave();
   $('kCsv').onclick = () => dl('/api/kam/by_mfr',
     {month: S.kam.month, state: S.kam.state, search: S.kam.search, limit: 5000});
 

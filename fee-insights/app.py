@@ -25,6 +25,7 @@ import os
 import io
 import csv
 import json
+import re
 import time
 import threading
 import duckdb
@@ -170,7 +171,44 @@ def _excl_save(items):
 
 
 def _optout_load():
-    return _load(OPTOUT_PATH, "mfr_id")
+    """Stored opt-in entries. Only non-default states are stored.
+
+    Three states: 'pending' (Opt-in confirmation pending -- the default for every
+    manufacturer whose contract has the satellite clause, never stored),
+    'confirmed' (manually validated) and 'not_opted' (manually marked as opted
+    out). Entries written before the three-state model carry no status: they were
+    opt-outs, so they read as 'not_opted'.
+    """
+    items = _load(OPTOUT_PATH, "mfr_id")
+    for i in items:
+        i["status"] = i.get("status") or "not_opted"
+    return items
+
+
+OPTIN_STATES = ("pending", "confirmed", "not_opted")
+OPTIN_LABELS = {"pending": "Confirmation pending", "confirmed": "Confirmed",
+                "not_opted": "Not_opted"}
+
+
+def parse_status(v):
+    """Accept the stored key, the UI label, or common spellings of either."""
+    k = re.sub(r"[^a-z]+", "_", str(v or "").strip().lower()).strip("_")
+    return {"pending": "pending", "confirmation_pending": "pending",
+            "opt_in_confirmation_pending": "pending", "default": "pending",
+            "confirmed": "confirmed", "validated": "confirmed",
+            "opt_in_confirmed": "confirmed",
+            "not_opted": "not_opted", "opted_out": "not_opted",
+            "not_opted_in": "not_opted", "opt_out": "not_opted"}.get(k)
+
+
+def optin_status_map():
+    with _excl_lock:
+        return {str(i["mfr_id"]): i for i in _optout_load()}
+
+
+def _ids_with(status):
+    with _excl_lock:
+        return [str(i["mfr_id"]) for i in _optout_load() if i["status"] == status]
 
 
 def excl_ids():
@@ -179,8 +217,12 @@ def excl_ids():
 
 
 def optout_ids():
-    with _excl_lock:
-        return [str(i["mfr_id"]) for i in _optout_load()]
+    """Manufacturers removed from the figures: only 'not_opted'."""
+    return _ids_with("not_opted")
+
+
+def confirmed_ids():
+    return _ids_with("confirmed")
 
 
 def _removed_terms(item_col, mfr_col):
@@ -598,9 +640,10 @@ def sat_filters(scope, city, mfr, item, bucket, ptype, state, search, dim,
     period is just another term here: `month` is in sat_cube's grain.
 
     `optin` picks the manufacturer set when the lists are applied: 'in'
-    (default) drops opted-out manufacturers, 'all' keeps every manufacturer
-    with the satellite clause, 'out' keeps only the opted-out ones. Item
-    exclusions apply in every mode.
+    (default) = confirmed + confirmation pending (Not_opted dropped), 'all' =
+    every manufacturer with the satellite clause, 'out' = Not_opted only,
+    'confirmed' / 'pending' = that state only. Item exclusions apply in every
+    mode.
     """
     where = [scope_clause(scope)]
     params = []
@@ -614,6 +657,15 @@ def sat_filters(scope, city, mfr, item, bucket, ptype, state, search, dim,
         if optin == "out":
             fo, po = only_excl_clause(None, "mfr_id")
             f, p = f"{f} AND {fo}", p + po
+        elif optin in ("confirmed", "pending"):
+            conf, outs = confirmed_ids(), optout_ids()
+            if optin == "confirmed":
+                f, p = (f"{f} AND list_contains(?::VARCHAR[], CAST(mfr_id AS VARCHAR))",
+                        p + [conf])
+            else:
+                f, p = (f"{f} AND NOT list_contains(?::VARCHAR[], CAST(mfr_id AS VARCHAR))"
+                        f" AND NOT list_contains(?::VARCHAR[], CAST(mfr_id AS VARCHAR))",
+                        p + [conf, outs])
     where.append(f)
     params += p
     for col, val in (("city_key", city), ("mfr_id", mfr), ("variant_id", item),
@@ -775,9 +827,11 @@ def sat_by(dim: str = "city", scope: str = "sat",
         GROUP BY {key} ORDER BY {order} LIMIT ? OFFSET ?
     """, p + [limit, offset])
     if dim == "mfr":
-        mids = set(optout_ids())
+        sm = optin_status_map()
         for r in rows:
-            r["opted_in"] = str(r["id"]) not in mids
+            st = (sm.get(str(r["id"])) or {}).get("status", "pending")
+            r["optin_status"] = st
+            r["opted_in"] = st != "not_opted"
     if fmt == "csv":
         return csv_response(rows, f"satellite_fees_by_{dim}")
     tot = one(f"""
@@ -921,7 +975,7 @@ def sat_exclusion_search(q_: str = Query("", alias="q"),
     """, ["%" + term.lower() + "%", "%" + term.lower() + "%", term, limit])
     for r in rows:
         r["excluded"] = r["variant_id"] in ids
-        r["mfr_opted_out"] = r["mfr_id"] in mids
+        r["mfr_opted_out"] = r["mfr_id"] in mids   # i.e. Not_opted
     return rows
 
 
@@ -960,67 +1014,165 @@ def sat_exclusion_remove(variant_id: str):
 
 
 # --- manufacturer opt-in. Same manufacturer list as the rest of the tab
-# (sat_cube, full window, all cities). Only opt-outs are stored.
+# (sat_cube, full window, all cities). Only non-default states are stored.
+
+def _optin_rows(search="", status="all"):
+    sm = optin_status_map()
+    f, p = like("mfr", search)
+    rows = q(f"""
+        SELECT CAST(mfr_id AS VARCHAR) AS id, any_value(mfr) AS mfr,
+               any_value(contract_state) AS contract_state,
+               round(sum(fee), 2) AS fee,
+               round(COALESCE(sum(fee) FILTER (WHERE is_satellite), 0), 2) AS fee_on_list,
+               sum(net_qty) AS net_qty, count(DISTINCT variant_id) AS items
+        FROM sat_cube WHERE {f} GROUP BY 1 ORDER BY fee DESC NULLS LAST
+    """, p)
+    for r in rows:
+        o = sm.get(r["id"]) or {}
+        r["status"] = o.get("status", "pending")
+        r["status_label"] = OPTIN_LABELS[r["status"]]
+        r["opted_in"] = r["status"] != "not_opted"
+        r["note"] = o.get("note", "")
+        r["changed_at"] = o.get("changed_at", "")
+    if status in OPTIN_STATES:
+        rows = [r for r in rows if r["status"] == status]
+    return rows
+
 
 @app.get("/api/sat/optin")
 def sat_optin(search: str = "", status: str = "all",
               limit: int = Query(100, le=2000), offset: int = 0):
-    """Manufacturers with their fee and current opt-in status."""
-    with _excl_lock:
-        outs = {str(i["mfr_id"]): i for i in _optout_load()}
-    ids = list(outs)
-    f, p = like("mfr", search)
-    st = {"out": "list_contains(?::VARCHAR[], id)",
-          "in": "NOT list_contains(?::VARCHAR[], id)"}.get(status)
-    rows = q(f"""
-        WITH m AS (
-            SELECT CAST(mfr_id AS VARCHAR) AS id, any_value(mfr) AS mfr,
-                   any_value(contract_state) AS contract_state,
-                   round(sum(fee), 2) AS fee,
-                   round(sum(fee) FILTER (WHERE is_satellite), 2) AS fee_on_list,
-                   sum(net_qty) AS net_qty, count(DISTINCT variant_id) AS items
-            FROM sat_cube WHERE {f} GROUP BY 1)
-        SELECT * FROM m WHERE {st or "TRUE"}
-        ORDER BY fee DESC NULLS LAST LIMIT ? OFFSET ?
-    """, p + ([ids] if st else []) + [limit, offset])
-    for r in rows:
-        o = outs.get(r["id"])
-        r["opted_in"] = o is None
-        r["note"] = (o or {}).get("note", "")
-        r["changed_at"] = (o or {}).get("changed_at", "")
-    tot = one("""
-        SELECT count(DISTINCT mfr_id) AS mfrs,
-               count(DISTINCT mfr_id) FILTER (
-                   WHERE list_contains(?::VARCHAR[], CAST(mfr_id AS VARCHAR))) AS opted_out,
-               round(COALESCE(sum(fee) FILTER (
-                   WHERE list_contains(?::VARCHAR[], CAST(mfr_id AS VARCHAR))), 0), 2)
-                   AS opted_out_fee,
-               round(COALESCE(sum(fee) FILTER (
-                   WHERE is_satellite AND list_contains(?::VARCHAR[], CAST(mfr_id AS VARCHAR))), 0), 2)
-                   AS opted_out_fee_on_list
-        FROM sat_cube""", [ids, ids, ids])
-    return {"rows": rows, "total": tot}
+    """Manufacturers with their fee and current opt-in status, plus totals per state."""
+    everyone = _optin_rows()
+    tot = {"mfrs": len(everyone)}
+    for st in OPTIN_STATES:
+        sel = [r for r in everyone if r["status"] == st]
+        tot[st] = len(sel)
+        tot[st + "_fee"] = round(sum(r["fee"] or 0 for r in sel), 2)
+        tot[st + "_fee_on_list"] = round(sum(r["fee_on_list"] or 0 for r in sel), 2)
+    rows = _optin_rows(search, status)
+    return {"rows": rows[offset:offset + limit], "matches": len(rows), "total": tot}
+
+
+def _set_status(items, mid, mfr, status, note):
+    items = [i for i in items if str(i["mfr_id"]) != mid]
+    if status != "pending":
+        items.append({"mfr_id": mid, "mfr": mfr, "status": status, "note": note,
+                      "changed_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+    return items
 
 
 @app.post("/api/sat/optin")
 def sat_optin_set(body: dict = Body(...)):
-    """Set one manufacturer's status: {"mfr_id": ..., "opted_in": bool, "note": ...}."""
+    """Set one manufacturer's status: {"mfr_id", "status", "note"}.
+
+    status is 'pending' | 'confirmed' | 'not_opted' (labels accepted too). The
+    older {"opted_in": bool} form still works: false -> not_opted, true -> pending.
+    """
     mid = str(body.get("mfr_id") or "").strip()
     if not mid:
         raise HTTPException(400, "mfr_id is required")
-    opted_in = bool(body.get("opted_in"))
+    if "status" in body:
+        status = parse_status(body.get("status"))
+        if not status:
+            raise HTTPException(400, "status must be Confirmation pending, Confirmed or Not_opted")
+    else:
+        status = "pending" if body.get("opted_in") else "not_opted"
     note = str(body.get("note") or "").strip()[:300]
     hit = one("SELECT any_value(mfr) AS mfr FROM sat_cube "
               "WHERE CAST(mfr_id AS VARCHAR) = ?", [mid])
     if not hit.get("mfr"):
         raise HTTPException(404, f"mfr_id {mid} not found in the satellite fee data")
     with _excl_lock:
-        items = [i for i in _optout_load() if str(i["mfr_id"]) != mid]
-        if not opted_in:
-            items.append({"mfr_id": mid, "mfr": hit["mfr"], "note": note,
-                          "changed_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+        _save(OPTOUT_PATH, _set_status(_optout_load(), mid, hit["mfr"], status, note))
+    return {"mfr_id": mid, "status": status}
+
+
+OPTIN_CSV_COLS = ["mfr_id", "manufacturer", "workdesk_cl_approval", "optin_status",
+                  "note", "fee_all_cities", "fee_satellite_cities", "items",
+                  "changed_at"]
+
+
+@app.get("/api/sat/optin/export")
+def sat_optin_export():
+    """Every manufacturer with its current opt-in status, as an editable CSV.
+
+    Edit `optin_status` (Confirmation pending / Confirmed / Not_opted) and `note`,
+    then re-upload. The other columns are for reference and ignored on upload.
+    """
+    rows = [{"mfr_id": r["id"], "manufacturer": r["mfr"],
+             "workdesk_cl_approval": r["contract_state"],
+             "optin_status": r["status_label"], "note": r["note"],
+             "fee_all_cities": r["fee"], "fee_satellite_cities": r["fee_on_list"],
+             "items": r["items"], "changed_at": r["changed_at"]}
+            for r in _optin_rows()]
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=OPTIN_CSV_COLS)
+    w.writeheader()
+    w.writerows(rows)
+    return StreamingResponse(
+        iter([buf.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition":
+                 f'attachment; filename="satellite_optin_status_{time.strftime("%Y%m%d")}.csv"'})
+
+
+@app.post("/api/sat/optin/import")
+def sat_optin_import(body: dict = Body(...), dry_run: int = 0):
+    """Apply an edited export: {"csv": "<file text>"}. All-or-nothing.
+
+    Only manufacturers present in the file change; rows whose status (and note)
+    already match are left alone. Any bad row rejects the whole file, so a
+    half-applied upload cannot happen. dry_run=1 validates and returns the
+    changes without saving -- the UI shows that preview before applying.
+    """
+    text = str(body.get("csv") or "")
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    reader = csv.DictReader(io.StringIO(text))
+    cols = {c.strip().lower(): c for c in (reader.fieldnames or [])}
+    if "mfr_id" not in cols or "optin_status" not in cols:
+        raise HTTPException(400, "CSV needs mfr_id and optin_status columns "
+                                 "(download the current status to get the template)")
+    known = {r["id"]: r for r in _optin_rows()}
+    changes, errors, seen, unchanged = [], [], set(), 0
+    for n, row in enumerate(reader, start=2):
+        mid = str(row.get(cols["mfr_id"]) or "").strip()
+        if not mid:
+            continue
+        if mid.endswith(".0") and mid[:-2].isdigit():
+            mid = mid[:-2]               # Excel turns 117 into 117.0
+        st = parse_status(row.get(cols["optin_status"]))
+        note = str(row.get(cols["note"]) or "").strip()[:300] if "note" in cols else None
+        if mid not in known:
+            errors.append({"line": n, "mfr_id": mid, "error": "unknown mfr_id"})
+            continue
+        if not st:
+            errors.append({"line": n, "mfr_id": mid,
+                           "error": f"bad optin_status '{row.get(cols['optin_status'])}'"})
+            continue
+        if mid in seen:
+            errors.append({"line": n, "mfr_id": mid, "error": "duplicate mfr_id"})
+            continue
+        seen.add(mid)
+        cur = known[mid]
+        new_note = cur["note"] if note is None else note
+        if st == cur["status"] and (st == "pending" or new_note == cur["note"]):
+            unchanged += 1
+            continue
+        changes.append({"mfr_id": mid, "mfr": cur["mfr"], "from": cur["status"],
+                        "to": st, "note": new_note, "fee": cur["fee"]})
+    out = {"rows": len(seen) + len(errors), "changes": changes,
+           "unchanged": unchanged, "errors": errors[:50], "n_errors": len(errors),
+           "applied": False}
+    if errors or dry_run:
+        return out
+    with _excl_lock:
+        items = _optout_load()
+        for c in changes:
+            items = _set_status(items, c["mfr_id"], c["mfr"], c["to"], c["note"] or "")
         _save(OPTOUT_PATH, items)
-    return {"mfr_id": mid, "opted_in": opted_in}
+    out["applied"] = True
+    return out
 
 
 @app.get("/api/sat/options")
@@ -1438,7 +1590,171 @@ def defect_item(item_id: str, frm: str = "", to: str = ""):
 
 # --------------------------------------------------------------------------
 # 4. KAM fees
+#
+# Billable = APPROVED + PENDING APPROVAL (a pending contract is signed and
+# charged); DRAFT / EXPIRED are contracted but not billable.
+#
+# KAM addendum dates (KAM_ADDENDA_PATH, on the state volume beside the
+# satellite lists): when a contract has one, its KAM charge accrues from the
+# addendum's month instead of the contract's effective month. kam_month in
+# fees.duckdb is never modified; with addenda present the same month spine is
+# regenerated at query time from kam_contracts (see kam_src), and with none the
+# pre-built table is read as-is, so numbers are unchanged until one is added.
 # --------------------------------------------------------------------------
+
+KAM_BILLABLE = ("APPROVED", "PENDING APPROVAL")
+ADDENDA_PATH = os.environ.get("KAM_ADDENDA_PATH",
+                              os.path.join(os.path.dirname(os.path.abspath(EXCL_PATH)),
+                                           "kam_addenda.json"))
+DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _addenda_load():
+    return _load(ADDENDA_PATH, "contract_id")
+
+
+def kam_end_month():
+    """Last accrual month, as a month-start DATE string (build_meta, else kam_month)."""
+    end = (one("SELECT value FROM build_meta WHERE key = 'kam_accrual_end'")
+           if has("build_meta") else {}).get("value")
+    if not end:
+        end = one("SELECT strftime(max(month_date), '%Y-%m') AS v FROM kam_month").get("v")
+    return (end or "1970-01")[:7] + "-01"
+
+
+def kam_src():
+    """(from-clause, params) with kam_month's columns, addenda applied."""
+    with _excl_lock:
+        ad = [(str(a["contract_id"]), a["date"]) for a in _addenda_load()
+              if DATE_ONLY.match(str(a.get("date", "")))]
+    if not ad:
+        return "kam_month", []
+    values = ", ".join(["(?, CAST(? AS DATE))"] * len(ad))
+    end = kam_end_month()
+    params = [v for pair in ad for v in pair] + [end, end]
+    return (f"""(
+        WITH ad(contract_id, start_date) AS (VALUES {values}),
+        c AS (
+            SELECT k.*, date_trunc('month', COALESCE(ad.start_date, k.effective_date)) AS m0
+            FROM kam_contracts k LEFT JOIN ad ON ad.contract_id = CAST(k.contract_id AS VARCHAR)),
+        mm AS (
+            SELECT c.*, UNNEST(generate_series(c.m0, CAST(? AS DATE), INTERVAL '1' MONTH)) AS m
+            FROM c WHERE c.m0 <= CAST(? AS DATE))
+        SELECT strftime(m, '%Y-%m') AS month, CAST(m AS DATE) AS month_date,
+               mfr_id, mfr, contract_id, contract_state,
+               COALESCE(monthly_fee, 0) AS fee, effective_date,
+               (date_diff('month', m0, m) + 1) AS month_idx
+        FROM mm)""", params)
+
+
+def kam_state_clause(state):
+    if state == "billable":
+        return "contract_state IN ('APPROVED', 'PENDING APPROVAL')", []
+    return and_eq("contract_state", state)
+
+
+@app.get("/api/kam/kpis")
+def kam_kpis_live(frm: str = "", to: str = ""):
+    """Headline KAM numbers computed live, so addenda move them immediately."""
+    src, sp = kam_src()
+    mf, mp = month_range(frm, to)
+    k = one(f"""
+        SELECT round(COALESCE(sum(fee), 0), 2) AS fee_to_date,
+               round(COALESCE(sum(fee) FILTER (WHERE contract_state IN ('APPROVED','PENDING APPROVAL')), 0), 2)
+                   AS billable_to_date,
+               round(COALESCE(sum(fee) FILTER (WHERE contract_state = 'APPROVED'), 0), 2)
+                   AS approved_to_date,
+               count(DISTINCT month) AS months,
+               min(month) AS first_month, max(month) AS last_month
+        FROM {src} AS km WHERE {mf}""", sp + mp)
+    c = one("""
+        SELECT count(*) AS contracts,
+               count(*) FILTER (WHERE contract_state IN ('APPROVED','PENDING APPROVAL')) AS billable,
+               count(*) FILTER (WHERE contract_state = 'APPROVED') AS approved
+        FROM kam_contracts""")
+    k.update(c)
+    base = one(f"SELECT round(COALESCE(sum(fee), 0), 2) AS v FROM kam_month WHERE {mf}", mp)
+    k["fee_without_addenda"] = base.get("v") or 0
+    with _excl_lock:
+        k["addenda"] = len(_addenda_load())
+    k["accrual_end"] = kam_end_month()[:7]
+    return k
+
+
+@app.get("/api/kam/addenda")
+def kam_addenda():
+    """Addendum dates, each with the contract's effective date and the fee it moves."""
+    with _excl_lock:
+        items = _addenda_load()
+    if not items:
+        return {"items": [], "fee_delta": 0}
+    kc = {str(r["contract_id"]): r for r in q("""
+        SELECT CAST(contract_id AS VARCHAR) AS contract_id, mfr, contract_state,
+               CAST(effective_date AS VARCHAR) AS effective_date, monthly_fee
+        FROM kam_contracts""")}
+    src, sp = kam_src()
+    now = {r["contract_id"]: r for r in q(f"""
+        SELECT CAST(contract_id AS VARCHAR) AS contract_id, round(sum(fee), 2) AS fee,
+               count(*) AS months, min(month) AS first_month
+        FROM {src} AS km GROUP BY 1""", sp)}
+    was = {r["contract_id"]: r for r in q("""
+        SELECT CAST(contract_id AS VARCHAR) AS contract_id, round(sum(fee), 2) AS fee,
+               count(*) AS months
+        FROM kam_month GROUP BY 1""")}
+    out = []
+    for a in items:
+        cid = str(a["contract_id"])
+        c, n, w = kc.get(cid, {}), now.get(cid, {}), was.get(cid, {})
+        out.append(dict(a, mfr=c.get("mfr") or a.get("mfr"),
+                        contract_state=c.get("contract_state"),
+                        effective_date=c.get("effective_date"),
+                        monthly_fee=c.get("monthly_fee"),
+                        first_month=n.get("first_month"), months=n.get("months") or 0,
+                        fee=n.get("fee") or 0,
+                        fee_delta=round((n.get("fee") or 0) - (w.get("fee") or 0), 2)))
+    return {"items": sorted(out, key=lambda r: r.get("mfr") or ""),
+            "fee_delta": round(sum(r["fee_delta"] for r in out), 2)}
+
+
+@app.post("/api/kam/addenda")
+def kam_addendum_set(body: dict = Body(...)):
+    """{"contract_id", "date": "YYYY-MM-DD", "note"} -- KAM accrues from that month."""
+    cid = str(body.get("contract_id") or "").strip()
+    d = str(body.get("date") or "").strip()
+    note = str(body.get("note") or "").strip()[:300]
+    if not cid or not DATE_ONLY.match(d):
+        raise HTTPException(400, "contract_id and date (YYYY-MM-DD) are required")
+    hit = one("SELECT mfr FROM kam_contracts WHERE CAST(contract_id AS VARCHAR) = ?", [cid])
+    if not hit.get("mfr"):
+        raise HTTPException(404, f"contract {cid} is not a KAM contract")
+    with _excl_lock:
+        items = [a for a in _addenda_load() if str(a["contract_id"]) != cid]
+        items.append({"contract_id": cid, "mfr": hit["mfr"], "date": d, "note": note,
+                      "changed_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+        _save(ADDENDA_PATH, items)
+    return kam_addenda()
+
+
+@app.delete("/api/kam/addenda/{contract_id}")
+def kam_addendum_remove(contract_id: str):
+    with _excl_lock:
+        items = _addenda_load()
+        keep = [a for a in items if str(a["contract_id"]) != contract_id]
+        if len(keep) != len(items):
+            _save(ADDENDA_PATH, keep)
+    return kam_addenda()
+
+
+@app.get("/api/kam/contracts")
+def kam_contract_options(search: str = "", limit: int = Query(30, le=500)):
+    """Typeahead for the addendum form: KAM contracts matching a name or id."""
+    term = search.strip().lower()
+    return q("""
+        SELECT CAST(contract_id AS VARCHAR) AS contract_id, mfr, contract_state,
+               CAST(effective_date AS VARCHAR) AS effective_date, monthly_fee
+        FROM kam_contracts
+        WHERE ? = '' OR lower(mfr) LIKE ? OR CAST(contract_id AS VARCHAR) = ?
+        ORDER BY mfr LIMIT ?""", [term, f"%{term}%", term, limit])
 
 @app.get("/api/kam/monthly")
 def kam_monthly(state: str = "all", frm: str = "", to: str = ""):
@@ -1449,23 +1765,24 @@ def kam_monthly(state: str = "all", frm: str = "", to: str = ""):
     contracts are not APPROVED, so a single monthly total silently reports a
     contracted ceiling as if it were revenue.
     """
-    f, p = and_eq("contract_state", state)
+    f, p = kam_state_clause(state)
     # KAM accrues per calendar month, so the period selects whole months.
     mf, mp = month_range(frm, to)
+    src, sp = kam_src()
     total = q(f"""
         SELECT month, count(*) AS contracts,
                round(sum(fee), 2) AS fee,
                count(*) FILTER (WHERE month_idx = 1) AS new_contracts,
                count(DISTINCT mfr_id) AS mfrs
-        FROM kam_month WHERE {f} AND {mf}
+        FROM {src} AS km WHERE {f} AND {mf}
         GROUP BY month ORDER BY month
-    """, p + mp)
+    """, sp + p + mp)
     by_state = q(f"""
         SELECT month, contract_state, round(sum(fee), 2) AS fee,
                count(*) AS contracts
-        FROM kam_month WHERE {f} AND {mf}
+        FROM {src} AS km WHERE {f} AND {mf}
         GROUP BY month, contract_state ORDER BY month
-    """, p + mp)
+    """, sp + p + mp)
     return {"total": total, "by_state": by_state}
 
 
@@ -1482,7 +1799,7 @@ def kam_by_mfr(month: str = "", state: str = "all", search: str = "",
     f, p = month_range(frm, to)
     where.append(f)
     params += p
-    f, p = and_eq("contract_state", state)
+    f, p = kam_state_clause(state)
     where.append(f)
     params += p
     f, p = like("mfr", search)
@@ -1490,6 +1807,7 @@ def kam_by_mfr(month: str = "", state: str = "all", search: str = "",
     params += p
     order = {"fee": "fee DESC", "name": "mfr ASC", "months": "months DESC",
              "start": "first_month ASC"}.get(sort, "fee DESC")
+    src, sp = kam_src()
     rows = q(f"""
         SELECT mfr_id, any_value(mfr) AS mfr, any_value(contract_id) AS contract_id,
                any_value(contract_state) AS contract_state,
@@ -1498,15 +1816,19 @@ def kam_by_mfr(month: str = "", state: str = "all", search: str = "",
                max(fee) AS monthly_fee,
                min(month) AS first_month, max(month) AS last_month,
                CAST(min(effective_date) AS VARCHAR) AS effective_date
-        FROM kam_month WHERE {" AND ".join(where)}
+        FROM {src} AS km WHERE {" AND ".join(where)}
         GROUP BY mfr_id ORDER BY {order} LIMIT ?
-    """, params + [limit])
+    """, sp + params + [limit])
+    with _excl_lock:
+        ad = {str(a["contract_id"]): a["date"] for a in _addenda_load()}
+    for r in rows:
+        r["addendum_date"] = ad.get(str(r["contract_id"]), "")
     if fmt == "csv":
         return csv_response(rows, "kam_fees_by_manufacturer")
     tot = one(f"""
         SELECT count(DISTINCT mfr_id) AS mfrs, round(sum(fee),2) AS fee
-        FROM kam_month WHERE {" AND ".join(where)}
-    """, params)
+        FROM {src} AS km WHERE {" AND ".join(where)}
+    """, sp + params)
     return {"total": tot, "rows": rows}
 
 
@@ -1522,7 +1844,7 @@ def kam_top_mfr(state: str = "all", month: str = "", top: int = Query(12, le=60)
     manufacturer" legibly, and the month filter moves it through time.
     """
     where, params = [], []
-    f, p = and_eq("contract_state", state)
+    f, p = kam_state_clause(state)
     where.append(f)
     params += p
     f, p = and_eq("month", month)
@@ -1531,14 +1853,15 @@ def kam_top_mfr(state: str = "all", month: str = "", top: int = Query(12, le=60)
     f, p = month_range(frm, to)
     where.append(f)
     params += p
+    src, sp = kam_src()
     return q(f"""
         SELECT mfr_id, any_value(mfr) AS mfr,
                any_value(contract_state) AS contract_state,
                round(sum(fee), 2) AS fee,
                count(*) AS months, max(fee) AS monthly_fee
-        FROM kam_month WHERE {" AND ".join(where)}
+        FROM {src} AS km WHERE {" AND ".join(where)}
         GROUP BY mfr_id ORDER BY fee DESC LIMIT ?
-    """, params + [top])
+    """, sp + params + [top])
 
 
 @app.get("/api/kam/states")
