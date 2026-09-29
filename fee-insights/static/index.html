@@ -618,6 +618,22 @@ ul.exec li::marker { color: var(--muted); }
     <div class="tw scrollY" style="max-height:260px;margin-top:8px"><table id="sxListTbl"></table></div>
   </div>
 
+  <div class="card" id="satOptCard" style="margin-bottom:14px">
+    <div class="hd"><h3>Manufacturer opt-in <span class="n" id="soCount"></span></h3></div>
+    <p class="sub">The satellite fee clause is signed, but each manufacturer decides in the opt-in window.
+      Everyone counts as <b>opted in</b> until you mark them out; opted-out manufacturers are removed from
+      the figures below (governed by the same <em>Apply</em> tick-box as the exclusion list).</p>
+    <div class="filters" style="margin:0 0 8px">
+      <label class="fld grow"><span>Find a manufacturer</span>
+        <input type="search" id="soSearch" placeholder="Manufacturer name"></label>
+      <label class="fld"><span>Status</span>
+        <select id="soStatus"><option value="all">All</option><option value="in">Opted in</option><option value="out">Opted out</option></select></label>
+      <label class="fld grow"><span>Note (optional, saved on opt-out)</span>
+        <input type="text" id="soNote" maxlength="300" placeholder="e.g. declined in Oct window"></label>
+    </div>
+    <div class="tw scrollY" style="max-height:320px"><table id="soTbl"></table></div>
+  </div>
+
   <div class="filters">
     <label class="fld"><span>City scope</span>
       <select id="sScope">
@@ -1917,7 +1933,40 @@ async function loadSat() {
   };
   fill('sBucket', sp.bucket); fill('sType', sp.product_type); fill('sState', sp.contract_state);
   ['chSatTrend','chSatBucket','chSatPtype','chSatBar','chSatRate'].forEach(watch);
-  await Promise.all([refreshSat(), loadExcl()]);
+  await Promise.all([refreshSat(), loadExcl(), loadOptin()]);
+}
+
+/* ---------- manufacturer opt-in ---------- */
+async function loadOptin() {
+  let d;
+  try {
+    d = await api('/api/sat/optin', {search: $('soSearch').value.trim(),
+      status: $('soStatus').value, limit: 200});
+  } catch (e) {
+    $('soTbl').innerHTML = `<tbody><tr><td class="empty">${esc('Opt-in list unavailable: ' + e.message)}</td></tr></tbody>`;
+    return;
+  }
+  const t = d.total || {};
+  $('soCount').textContent = `${num(t.mfrs - t.opted_out)} of ${num(t.mfrs)} opted in`
+    + (t.opted_out ? ` · ${num(t.opted_out)} out (${inr(t.opted_out_fee)})` : '');
+  renderTable('soTbl', [
+    {k: 'mfr', h: 'Manufacturer', w: '34%', title: (v, r) => `${v} (id ${r.id})`,
+     fmt: (v, r) => `${esc(v || '—')}<span class="sub2">${num(r.items)} items · id ${esc(r.id)}</span>`},
+    {k: 'contract_state', h: 'Contract', w: '13%', cls: 'hn2', fmt: v => stateBadge(v)},
+    {k: 'fee', h: 'Fee (all data)', w: '15%', num: true, title: v => inrFull(v), fmt: v => inr(v)},
+    {k: 'opted_in', h: 'Status', w: '20%',
+     fmt: (v, r) => v ? '<span class="badge on">Opted in</span>'
+       : `<span class="badge warn">Opted out</span><span class="sub2">${esc(r.note || '')}${r.note ? ' · ' : ''}${esc(r.changed_at || '')}</span>`},
+    {k: 'id', h: '', w: '18%', num: true,
+     fmt: (v, r) => `<button class="btn sm" data-mfr="${esc(v)}" data-in="${r.opted_in ? '0' : '1'}">${r.opted_in ? 'Opt out' : 'Opt back in'}</button>`},
+  ], d.rows || [], {empty: 'No manufacturer matches.'});
+  $('soTbl').querySelectorAll('button[data-mfr]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await apiSend('POST', '/api/sat/optin', {mfr_id: b.dataset.mfr,
+            opted_in: b.dataset.in === '1', note: $('soNote').value}); }
+    catch (e) { alert('Could not update: ' + e.message); b.disabled = false; return; }
+    loadOptin(); refreshSat();
+  });
 }
 
 /* ---------- exclusion list ----------
@@ -1974,6 +2023,7 @@ async function searchExcl() {
     {k: 'cities', h: 'Cities', w: '10%', num: true, cls: 'hn', fmt: v => num(v)},
     {k: 'variant_id', h: '', w: '14%', num: true,
      fmt: (v, r) => r.excluded ? '<span class="dim">excluded</span>'
+       : r.mfr_opted_out ? '<span class="dim" title="Its manufacturer is opted out, so it is already removed">mfr opted out</span>'
        : `<button class="btn sm" data-excl="${esc(v)}">Exclude</button>`},
   ], rows, {empty: 'No item with a satellite fee matches that search.'});
   $('sxResTbl').querySelectorAll('button[data-excl]').forEach(b => b.onclick = async () => {
@@ -2002,7 +2052,7 @@ async function refreshSat() {
   busy($('satByWrap'), true);
   const [kp, tr, by, sp] = await Promise.all([
     api('/api/sat/kpis', p),
-    api('/api/sat/trend', {scope: S.sat.scope, city: p.city, mfr: p.mfr}),
+    api('/api/sat/trend', {scope: S.sat.scope, city: p.city, mfr: p.mfr, excl: exclParam()}),
     S.sat.dim === 'facility'
       ? api('/api/sat/facilities', {scope: S.sat.scope, city: p.city,
           search: S.sat.search, limit: S.sat.limit})
@@ -2016,7 +2066,7 @@ async function refreshSat() {
   $('satTiles').innerHTML = [
     tile('Satellite fee — current slice', inr(kp.fee),
          scopeLabel() + (kp.excluded_items
-           ? (kp.exclusions_applied ? ` · ${inr(kp.excluded_fee)} excluded` : ' · exclusions off')
+           ? (kp.exclusions_applied ? ` · ${inr(kp.excluded_fee)} removed` : ' · exclusions & opt-outs off')
            : ''), 'hero accent'),
     tile('Net units sold', num(kp.net_qty),
          `${num(kp.qty_sold)} sold − ${num(kp.qty_returned)} returned`),
@@ -2039,12 +2089,18 @@ async function refreshSat() {
         : ''));
 
   if (kp.exclusions_applied && kp.excluded_items) {
-    $('satScopeNote').innerHTML += noteHTML('info', 'Exclusion list applied',
-      `${num(kp.excluded_items)} excluded item${kp.excluded_items > 1 ? 's' : ''} removed `
-      + `${inrFull(kp.excluded_fee)} (${num(kp.excluded_net_qty)} net units) from this slice. `
-      + `Totals, the breakdown table, the top-12 chart and the MRP bucket / product type charts `
-      + `reflect this. The daily trend, per-unit rate chart, serving-facility table and the `
-      + `Satellite cities tab have no item-level detail, so they still include excluded items.`);
+    const bits = [];
+    if (kp.optout_mfrs) bits.push(`${num(kp.optout_mfrs)} opted-out manufacturer${kp.optout_mfrs > 1 ? 's' : ''} `
+      + `(${inrFull(kp.optout_fee)})`);
+    if (kp.item_excl_items) bits.push(`${num(kp.item_excl_items)} excluded item${kp.item_excl_items > 1 ? 's' : ''} `
+      + `(${inrFull(kp.item_excl_fee)})`);
+    $('satScopeNote').innerHTML += noteHTML('info', 'Exclusions & opt-outs applied',
+      `${bits.join(' and ')} removed ${inrFull(kp.excluded_fee)} (${num(kp.excluded_net_qty)} net units) `
+      + `from this slice. Totals, the breakdown table, the top-12 chart and the MRP bucket / product type `
+      + `charts reflect both. The daily trend reflects opt-outs`
+      + (kp.item_excl_items ? ' but not item exclusions' : '') + `. The per-unit rate chart, `
+      + `serving-facility table and the Satellite cities tab have no manufacturer or item detail, `
+      + `so they still include everything.`);
   }
   drawSatTrend(tr);
   drawSatSplits(sp);
@@ -3487,6 +3543,8 @@ function wire() {
   $('sxSearch').oninput = debounce(() => searchExcl().catch(e =>
     alert('Search failed: ' + e.message)));
   $('sxApply').onchange = e => { S.sat.excl = e.target.checked; refreshSat(); };
+  $('soSearch').oninput = debounce(() => loadOptin());
+  $('soStatus').onchange = () => loadOptin();
 
   // --- defects
   $('dType').onchange = e => { S.def.ctype = e.target.value; refreshDefects(); };

@@ -24,6 +24,23 @@ variant id), exclude it with an optional reason, restore it any time. Untick
   The tab shows a note saying so whenever the list is active.
 - Anyone who can open the dashboard can edit the list (chef-server auth only).
 
+## Manufacturer opt-in
+
+Satellite fees tab → *Manufacturer opt-in*: the same manufacturer list as
+the rest of the tab (sat_cube). Everyone is **opted in** by default, so an
+empty list is exactly the original numbers; mark a manufacturer *Opt out*
+(optional note) during the opt-in window and its fee drops out of the
+figures. *Opt back in* restores it.
+
+- Stored in `SAT_OPTOUT_PATH` (default `sat_optouts.json` beside the item
+  list, i.e. `/state/` on the PVC). Only opt-outs are stored.
+- Applied wherever item exclusions are, **plus the daily trend** (mfr_id is
+  in `sat_day_city_mfr`'s grain). Still not applied: rate histogram,
+  serving-facility table, Satellite cities tab.
+- The same *Apply to figures below* tick-box switches both lists off.
+- An excluded item whose manufacturer is opted out is counted once, under
+  the opt-out.
+
 ## Deploy
 
 ```

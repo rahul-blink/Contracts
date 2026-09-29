@@ -126,29 +126,51 @@ def and_eq(col, val):
 # splits) -- honour the list. The daily trend, facility ranking, rate
 # histogram and the Satellite cities tab have no item grain; the UI says so
 # rather than showing them as if they were adjusted.
+#
+# Manufacturer opt-outs (SAT_OPTOUT_PATH, beside the item list) work the same
+# way on mfr_id. The satellite fee clause is signed, but each manufacturer
+# decides in the opt-in window; every manufacturer counts as opted in until
+# marked otherwise, so an empty file is exactly the original numbers. mfr_id
+# is also in sat_day_city_mfr's grain, so the daily trend honours opt-outs
+# (but not item exclusions).
 # --------------------------------------------------------------------------
 
 EXCL_PATH = os.environ.get("SAT_EXCLUSIONS_PATH",
                            os.path.join(HERE, "state", "sat_exclusions.json"))
+OPTOUT_PATH = os.environ.get("SAT_OPTOUT_PATH",
+                             os.path.join(os.path.dirname(os.path.abspath(EXCL_PATH)),
+                                          "sat_optouts.json"))
 _excl_lock = threading.Lock()
 
 
-def _excl_load():
+def _load(path, key):
     try:
-        with open(EXCL_PATH) as f:
+        with open(path) as f:
             items = json.load(f).get("items", [])
-        return [i for i in items if i.get("variant_id")]
+        return [i for i in items if i.get(key)]
     except FileNotFoundError:
         return []
 
 
-def _excl_save(items):
+def _save(path, items):
     """Atomic write: a crash mid-save never leaves a half-written list."""
-    os.makedirs(os.path.dirname(os.path.abspath(EXCL_PATH)), exist_ok=True)
-    tmp = EXCL_PATH + ".tmp"
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump({"items": items}, f, indent=1)
-    os.replace(tmp, EXCL_PATH)
+    os.replace(tmp, path)
+
+
+def _excl_load():
+    return _load(EXCL_PATH, "variant_id")
+
+
+def _excl_save(items):
+    _save(EXCL_PATH, items)
+
+
+def _optout_load():
+    return _load(OPTOUT_PATH, "mfr_id")
 
 
 def excl_ids():
@@ -156,20 +178,49 @@ def excl_ids():
         return [str(i["variant_id"]) for i in _excl_load()]
 
 
-def excl_clause(excl="on", col="variant_id"):
-    """(fragment, params) dropping excluded items. excl='off' ignores the list."""
-    ids = excl_ids() if excl != "off" else []
-    if not ids:
+def optout_ids():
+    with _excl_lock:
+        return [str(i["mfr_id"]) for i in _optout_load()]
+
+
+def _removed_terms(item_col, mfr_col):
+    """SQL terms (and params) matching rows removed by either list."""
+    terms, params = [], []
+    ids = excl_ids() if item_col else []
+    if ids:
+        terms.append(f"list_contains(?::VARCHAR[], CAST({item_col} AS VARCHAR))")
+        params.append(ids)
+    mids = optout_ids() if mfr_col else []
+    if mids:
+        terms.append(f"list_contains(?::VARCHAR[], CAST({mfr_col} AS VARCHAR))")
+        params.append(mids)
+    return terms, params
+
+
+def excl_clause(excl="on", col="variant_id", mfr_col="mfr_id"):
+    """(fragment, params) dropping excluded items and opted-out manufacturers.
+
+    excl='off' ignores both lists. Pass col=None on a table with no item grain
+    to apply only the manufacturer opt-outs.
+    """
+    if excl == "off":
         return "TRUE", []
-    return f"NOT list_contains(?::VARCHAR[], CAST({col} AS VARCHAR))", [ids]
+    terms, params = _removed_terms(col, mfr_col)
+    if not terms:
+        return "TRUE", []
+    return "NOT (" + " OR ".join(terms) + ")", params
 
 
-def only_excl_clause(col="variant_id"):
-    """(fragment, params) keeping ONLY excluded items -- to size what was removed."""
-    ids = excl_ids()
-    if not ids:
+def only_excl_clause(col="variant_id", mfr_col="mfr_id"):
+    """(fragment, params) keeping ONLY removed rows -- to size what was removed."""
+    terms, params = _removed_terms(col, mfr_col)
+    if not terms:
         return "FALSE", []
-    return f"list_contains(?::VARCHAR[], CAST({col} AS VARCHAR))", [ids]
+    return "(" + " OR ".join(terms) + ")", params
+
+
+def removal_active(excl):
+    return excl != "off" and bool(excl_ids() or optout_ids())
 
 
 # --------------------------------------------------------------------------
@@ -608,13 +659,26 @@ def sat_kpis(scope: str = "sat", city: str = "", mfr: str = "", item: str = "",
                count(DISTINCT variant_id) AS excluded_items
         FROM sat_cube WHERE {w_x} AND {fx}
     """, p_x + px))
-    cur["exclusions_applied"] = excl != "off" and bool(excl_ids())
+    # The two lists sized separately: opt-outs first, then item exclusions
+    # among the manufacturers still opted in (so nothing is counted twice).
+    fo, po = only_excl_clause(None, "mfr_id")
+    fi, pi = only_excl_clause("variant_id", None)
+    cur.update(one(f"""
+        SELECT round(COALESCE(sum(fee) FILTER (WHERE {fo}), 0), 2) AS optout_fee,
+               count(DISTINCT mfr_id) FILTER (WHERE {fo})           AS optout_mfrs,
+               round(COALESCE(sum(fee) FILTER (WHERE {fi} AND NOT {fo}), 0), 2)
+                                                                    AS item_excl_fee,
+               count(DISTINCT variant_id) FILTER (WHERE {fi} AND NOT {fo})
+                                                                    AS item_excl_items
+        FROM sat_cube WHERE {w_x}
+    """, po + po + pi + po + pi + po + p_x))
+    cur["exclusions_applied"] = removal_active(excl)
     return cur
 
 
 @app.get("/api/sat/trend")
 def sat_trend(scope: str = "sat", city: str = "", mfr: str = "",
-              frm: str = "", to: str = ""):
+              frm: str = "", to: str = "", excl: str = "on"):
     """Daily fee for the current slice.
 
     Reads sat_day_city_mfr, whose grain is exactly (day, city, manufacturer) --
@@ -631,6 +695,11 @@ def sat_trend(scope: str = "sat", city: str = "", mfr: str = "",
     params += p
     # sat_day_city_mfr carries `day`, so the month period is a predicate on it.
     f, p = day_month_range(frm, to)
+    where.append(f)
+    params += p
+    # mfr_id is in this table's grain, so manufacturer opt-outs apply exactly;
+    # item exclusions cannot (no variant_id here).
+    f, p = excl_clause(excl, col=None)
     where.append(f)
     params += p
     return q(f"""
@@ -710,7 +779,7 @@ def sat_splits(scope: str = "sat", frm: str = "", to: str = "", excl: str = "on"
     mf, mp = month_range(frm, to)
     s = f"{s} AND {mf}"
     cs, cp = city_stats_src(frm, to)
-    apply_excl = excl != "off" and bool(excl_ids())
+    apply_excl = removal_active(excl)
 
     def split(col):
         rows = q(f"""SELECT {col} AS label, round(sum(fee),2) AS fee,
@@ -820,10 +889,11 @@ def sat_exclusion_search(q_: str = Query("", alias="q"),
     term = q_.strip()
     if len(term) < 2:
         return []
-    ids = excl_ids()
+    ids, mids = excl_ids(), optout_ids()
     rows = q("""
         SELECT CAST(variant_id AS VARCHAR) AS variant_id,
                any_value(item_name) AS item_name, any_value(mfr) AS mfr,
+               CAST(any_value(mfr_id) AS VARCHAR) AS mfr_id,
                max(variant_mrp) AS variant_mrp,
                round(sum(fee), 2) AS fee, sum(net_qty) AS net_qty,
                count(DISTINCT city_key) AS cities
@@ -834,6 +904,7 @@ def sat_exclusion_search(q_: str = Query("", alias="q"),
     """, ["%" + term.lower() + "%", "%" + term.lower() + "%", term, limit])
     for r in rows:
         r["excluded"] = r["variant_id"] in ids
+        r["mfr_opted_out"] = r["mfr_id"] in mids
     return rows
 
 
@@ -869,6 +940,70 @@ def sat_exclusion_remove(variant_id: str):
         if len(keep) != len(items):
             _excl_save(keep)
     return sat_exclusions()
+
+
+# --- manufacturer opt-in. Same manufacturer list as the rest of the tab
+# (sat_cube, full window, all cities). Only opt-outs are stored.
+
+@app.get("/api/sat/optin")
+def sat_optin(search: str = "", status: str = "all",
+              limit: int = Query(100, le=2000), offset: int = 0):
+    """Manufacturers with their fee and current opt-in status."""
+    with _excl_lock:
+        outs = {str(i["mfr_id"]): i for i in _optout_load()}
+    ids = list(outs)
+    f, p = like("mfr", search)
+    st = {"out": "list_contains(?::VARCHAR[], id)",
+          "in": "NOT list_contains(?::VARCHAR[], id)"}.get(status)
+    rows = q(f"""
+        WITH m AS (
+            SELECT CAST(mfr_id AS VARCHAR) AS id, any_value(mfr) AS mfr,
+                   any_value(contract_state) AS contract_state,
+                   round(sum(fee), 2) AS fee,
+                   round(sum(fee) FILTER (WHERE is_satellite), 2) AS fee_on_list,
+                   sum(net_qty) AS net_qty, count(DISTINCT variant_id) AS items
+            FROM sat_cube WHERE {f} GROUP BY 1)
+        SELECT * FROM m WHERE {st or "TRUE"}
+        ORDER BY fee DESC NULLS LAST LIMIT ? OFFSET ?
+    """, p + ([ids] if st else []) + [limit, offset])
+    for r in rows:
+        o = outs.get(r["id"])
+        r["opted_in"] = o is None
+        r["note"] = (o or {}).get("note", "")
+        r["changed_at"] = (o or {}).get("changed_at", "")
+    tot = one("""
+        SELECT count(DISTINCT mfr_id) AS mfrs,
+               count(DISTINCT mfr_id) FILTER (
+                   WHERE list_contains(?::VARCHAR[], CAST(mfr_id AS VARCHAR))) AS opted_out,
+               round(COALESCE(sum(fee) FILTER (
+                   WHERE list_contains(?::VARCHAR[], CAST(mfr_id AS VARCHAR))), 0), 2)
+                   AS opted_out_fee,
+               round(COALESCE(sum(fee) FILTER (
+                   WHERE is_satellite AND list_contains(?::VARCHAR[], CAST(mfr_id AS VARCHAR))), 0), 2)
+                   AS opted_out_fee_on_list
+        FROM sat_cube""", [ids, ids, ids])
+    return {"rows": rows, "total": tot}
+
+
+@app.post("/api/sat/optin")
+def sat_optin_set(body: dict = Body(...)):
+    """Set one manufacturer's status: {"mfr_id": ..., "opted_in": bool, "note": ...}."""
+    mid = str(body.get("mfr_id") or "").strip()
+    if not mid:
+        raise HTTPException(400, "mfr_id is required")
+    opted_in = bool(body.get("opted_in"))
+    note = str(body.get("note") or "").strip()[:300]
+    hit = one("SELECT any_value(mfr) AS mfr FROM sat_cube "
+              "WHERE CAST(mfr_id AS VARCHAR) = ?", [mid])
+    if not hit.get("mfr"):
+        raise HTTPException(404, f"mfr_id {mid} not found in the satellite fee data")
+    with _excl_lock:
+        items = [i for i in _optout_load() if str(i["mfr_id"]) != mid]
+        if not opted_in:
+            items.append({"mfr_id": mid, "mfr": hit["mfr"], "note": note,
+                          "changed_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+        _save(OPTOUT_PATH, items)
+    return {"mfr_id": mid, "opted_in": opted_in}
 
 
 @app.get("/api/sat/options")
