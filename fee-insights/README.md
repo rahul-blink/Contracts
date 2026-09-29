@@ -53,6 +53,22 @@ figures. *Opt back in* restores it.
   (what opting in would add). Item exclusions apply in every mode; the
   headline tiles always follow *Opted in*.
 
+## Refreshing contracts (and KAM) from a Contract Details export
+
+`load_contracts.py <export.csv> --db fees.duckdb --tag YYYY_MM_DD` maps a
+Contract Details CSV export (7 renamed headers, a duplicated
+`complaints_penalty_enable1`) onto the contracts_extract schema and rebuilds
+only the **contracts** and **KAM** sections in place via
+`build_db.rebuild_part`. The same file feeds both: KAM filters
+`kam_support = 'Yes'` itself, and accrual runs to the latest KAM
+effective/execution month in the file. Satellite, defects, recall and cities
+are untouched; the exclusion / opt-in lists on the state volume are keyed by
+variant_id / mfr_id and are not read or written. The export is not committed.
+
+2026-09-29: `Contract_Details_3.0_Revised_2026_09_29.csv` -- 1,387 contracts
+(was 1,290: +218, -121, 55 PENDING->APPROVED), 188 KAM contracts, accrual to
+2026-09. Loaded at image build time (CSV sha256 `b49bbadf...`, LF endings).
+
 ## Deploy
 
 ```
