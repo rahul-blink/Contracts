@@ -67,7 +67,15 @@ variant_id / mfr_id and are not read or written. The export is not committed.
 
 2026-09-29: `Contract_Details_3.0_Revised_2026_09_29.csv` -- 1,387 contracts
 (was 1,290: +218, -121, 55 PENDING->APPROVED), 188 KAM contracts, accrual to
-2026-09. Loaded at image build time (CSV sha256 `b49bbadf...`, LF endings).
+2026-09. Live as image `01M3PCK4F8GTC2XK1M7AGEMA4N`.
+
+Shipping it without the CLI: the connector only takes inline file content, so
+the export went up as a delta against the contracts table already in the
+image (`apply_delta.py` + `delta_lib.py`; 218 new, 833 patched, 336 unchanged
+rows). The build rebuilt the exact export (CSV sha256 `b49bbadf...`, LF
+endings) before running `load_contracts.py`. The delta files carry contract
+data and are not committed. With the `chef` CLI, just COPY the CSV and run
+`load_contracts.py` directly.
 
 ## Deploy
 
