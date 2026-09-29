@@ -105,6 +105,13 @@ new Satellite layout. Built `FROM 01M3PCK4F8GTC2XK1M7AGEMA4N` with the same
 sha-checked patch (app.py `fc50c46f…`, index.html `70953e0a…`). Previous
 images remain rollback points.
 
+Then `01M3PJNCKWMYJZPFFERM3YWJ48` (2026-09-29): **Data & definitions ->
+Download data** -- `/api/export` (manifest + DB sha256), `/api/export/db`
+(fees.duckdb byte-for-byte, range/resume), `/api/export/state` (zip of the
+saved lists), `/api/export/table/{name}?fmt=parquet|csv`. Read-only. Live DB
+sha256 `cfceaac2...` (429,928,448 bytes). See ../LOCAL_WORKFLOW.md for moving
+to a local clone + `chef` CLI.
+
 The state PVC is ReadWriteOnce, so the Deployment uses `strategy: Recreate`:
 each deploy stops the old pod before starting the new one (~30-60 s of
 downtime) so the volume can move between nodes. The volume and the lists on

@@ -28,10 +28,14 @@ import json
 import re
 import time
 import threading
+import hashlib
+import tempfile
+import zipfile
 import duckdb
 from fastapi import FastAPI, Query, HTTPException, Body
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get("DB_PATH", os.path.join(HERE, "fees.duckdb"))
@@ -2161,6 +2165,111 @@ def contract_options():
         "purchase": q("SELECT COALESCE(type_of_purchase,'Not set') AS value, "
                       "count(*) AS n FROM contract_list GROUP BY 1 ORDER BY n DESC"),
     }
+
+
+# --------------------------------------------------------------------------
+# data export
+#
+# Everything needed to run this dashboard elsewhere (e.g. a local checkout):
+# the read-only fees.duckdb, the editable lists on the state volume, and any
+# single table as Parquet or CSV. Nothing here writes to the DB or the state.
+# --------------------------------------------------------------------------
+
+_sha_cache = {}
+
+
+def _sha256(path):
+    """sha256 of a file, cached on (size, mtime) -- fees.duckdb is ~430 MB."""
+    st = os.stat(path)
+    key = (path, st.st_size, st.st_mtime)
+    if key not in _sha_cache:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        _sha_cache[key] = h.hexdigest()
+    return _sha_cache[key]
+
+
+def _state_files():
+    return [("sat_exclusions.json", EXCL_PATH, "variant_id"),
+            ("sat_optouts.json", OPTOUT_PATH, "mfr_id"),
+            ("kam_addenda.json", ADDENDA_PATH, "contract_id")]
+
+
+def _tables():
+    return q("""SELECT table_name AS name, estimated_size AS rows,
+                       column_count AS cols
+                FROM duckdb_tables() WHERE NOT internal ORDER BY table_name""")
+
+
+@app.get("/api/export")
+def export_manifest():
+    """What can be downloaded, with sizes and the DB checksum to verify against."""
+    db = {"file": os.path.basename(DB), "exists": os.path.exists(DB)}
+    if db["exists"]:
+        db.update(bytes=os.path.getsize(DB), sha256=_sha256(DB))
+    state = []
+    with _excl_lock:
+        for name, path, key in _state_files():
+            state.append({"file": name, "exists": os.path.exists(path),
+                          "entries": len(_load(path, key)),
+                          "bytes": os.path.getsize(path) if os.path.exists(path) else 0})
+    return {"db": db, "state": state, "tables": _tables() if con else []}
+
+
+@app.get("/api/export/db")
+def export_db():
+    """The whole analytics DB, byte-for-byte (supports HTTP range / resume)."""
+    if not os.path.exists(DB):
+        raise HTTPException(404, "fees.duckdb not found")
+    return FileResponse(DB, media_type="application/octet-stream",
+                        filename=f"fees_{time.strftime('%Y%m%d')}.duckdb")
+
+
+@app.get("/api/export/state")
+def export_state():
+    """The editable lists (exclusions, opt-in states, KAM addenda) as one zip.
+
+    Restore locally by unzipping into ./state -- the file names match the
+    defaults app.py reads when the *_PATH env vars are unset.
+    """
+    buf = io.BytesIO()
+    with _excl_lock, zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, path, _ in _state_files():
+            if os.path.exists(path):
+                z.write(path, name)
+        z.writestr("manifest.json", json.dumps({
+            "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "db_file": os.path.basename(DB),
+            "db_bytes": os.path.getsize(DB) if os.path.exists(DB) else None,
+            "db_sha256": _sha256(DB) if os.path.exists(DB) else None,
+        }, indent=1))
+    return StreamingResponse(
+        iter([buf.getvalue()]), media_type="application/zip",
+        headers={"Content-Disposition":
+                 f'attachment; filename="fee_insights_state_{time.strftime("%Y%m%d")}.zip"'})
+
+
+@app.get("/api/export/table/{name}")
+def export_table(name: str, fmt: str = "parquet"):
+    """One table as Parquet (default) or CSV. Name must be an existing table."""
+    if fmt not in ("parquet", "csv"):
+        raise HTTPException(400, "fmt must be parquet or csv")
+    if name not in {t["name"] for t in _tables()}:
+        raise HTTPException(404, f"no table {name!r}")
+    fd, tmp = tempfile.mkstemp(suffix="." + fmt)
+    os.close(fd)
+    opts = "FORMAT parquet, COMPRESSION zstd" if fmt == "parquet" else "FORMAT csv, HEADER"
+    try:
+        with _lock:
+            con.execute(f"""COPY (SELECT * FROM "{name}") TO '{tmp}' ({opts})""")
+    except Exception:
+        os.remove(tmp)
+        raise
+    return FileResponse(
+        tmp, media_type="text/csv" if fmt == "csv" else "application/octet-stream",
+        filename=f"{name}.{fmt}", background=BackgroundTask(os.remove, tmp))
 
 
 # --------------------------------------------------------------------------

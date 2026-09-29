@@ -1,0 +1,17 @@
+# Data never goes to GitHub: contract and fee data is internal/confidential.
+Data/
+data/
+state/
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.csv
+*.xlsx
+*.zip
+
+# Local tooling
+.venv/
+venv/
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store

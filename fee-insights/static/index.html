@@ -1055,6 +1055,20 @@ ul.exec li::marker { color: var(--muted); }
 
 <!-- ==================== 6. DATA ==================== -->
 <section class="tabpanel" id="p-data" role="tabpanel" hidden>
+  <div class="card" id="exportCard" style="margin-bottom:16px">
+    <div class="hd"><h3>Download data</h3>
+      <div class="acts">
+        <button class="btn sm" id="xDb" title="The whole analytics database, byte-for-byte">↓ fees.duckdb</button>
+        <button class="btn sm" id="xState" title="Exclusion list, opt-in states and KAM addenda">↓ Saved lists (zip)</button>
+      </div></div>
+    <p class="sub">Everything this dashboard runs on, for a local copy or a backup. <b>fees.duckdb</b> holds every
+      number shown; the <b>saved lists</b> are what you have edited here (item exclusions, manufacturer opt-in
+      states, KAM addendum dates) and are not inside the DB. Single tables download as Parquet or CSV.
+      Internal and confidential — keep downloads off shared drives and out of git.</p>
+    <p class="hint" id="xInfo">Loading…</p>
+    <div class="tw scrollY" style="max-height:320px"><table id="xTbl"></table></div>
+  </div>
+
   <div class="card" style="margin-bottom:16px">
     <div class="hd"><h3>Data health</h3></div>
     <p class="sub">Every caveat the build raised. These are not cosmetic — each one changes how a number on this dashboard should be read.</p>
@@ -3604,7 +3618,27 @@ async function openContractDrawer(row) {
 /* ==========================================================================
    6. DATA
    ========================================================================== */
+async function loadExport() {
+  const go = p => { window.location = new URL(p, location.origin).toString(); };
+  $('xDb').onclick = () => go('/api/export/db');
+  $('xState').onclick = () => go('/api/export/state');
+  let x;
+  try { x = await api('/api/export'); } catch (e) { $('xInfo').textContent = 'Could not load: ' + e.message; return; }
+  const st = x.state.map(f => `${f.file}: ${f.exists ? num(f.entries, 0) + ' entries' : 'empty'}`).join(' · ');
+  $('xInfo').innerHTML = x.db.exists
+    ? `fees.duckdb ${num(x.db.bytes / 1e6, 1)} MB · sha256 <code>${esc(x.db.sha256)}</code><br>${esc(st)}`
+    : 'fees.duckdb not found on the server.';
+  renderTable('xTbl', [
+    {k: 'name', h: 'Table', w: '40%', title: v => v, fmt: v => esc(v)},
+    {k: 'rows', h: 'Rows (approx.)', w: '20%', num: true, fmt: v => num(v, 0)},
+    {k: 'cols', h: 'Cols', w: '10%', num: true, fmt: v => num(v, 0)},
+    {k: 'name', h: 'Download', w: '30%', fmt: v =>
+      `<a href="/api/export/table/${encodeURIComponent(v)}">Parquet</a> · `
+      + `<a href="/api/export/table/${encodeURIComponent(v)}?fmt=csv">CSV</a>`},
+  ], x.tables || [], {empty: 'No tables.'});
+}
 function loadData() {
+  loadExport();
   const notes = S.meta.notes || [];
   $('notesList').innerHTML = notes.length
     ? notes.map(n => noteHTML(n.level, n.label, esc(n.note))).join('')
