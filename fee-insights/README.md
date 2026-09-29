@@ -40,6 +40,13 @@ figures. *Opt back in* restores it.
 - The same *Apply to figures below* tick-box switches both lists off.
 - An excluded item whose manufacturer is opted out is counted once, under
   the opt-out.
+- Daily trend: a dashed *If all opted in* line (`fee_potential`) is the same
+  slice with no opt-outs; the subtitle sums the gap. Like the trend itself it
+  cannot drop item exclusions.
+- Breakdown table / top-12 chart: *Manufacturers* dropdown -- *Opted in*
+  (default), *All with satellite clause* (ignores opt-outs), *Opted out only*
+  (what opting in would add). Item exclusions apply in every mode; the
+  headline tiles always follow *Opted in*.
 
 ## Deploy
 
