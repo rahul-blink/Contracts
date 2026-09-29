@@ -24,10 +24,11 @@ Then open http://127.0.0.1:8000
 import os
 import io
 import csv
+import json
 import time
 import threading
 import duckdb
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Body
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -109,6 +110,66 @@ def and_eq(col, val):
     if val is None or val == "" or val == "all":
         return "TRUE", []
     return f"{col} = ?", [val]
+
+
+# --------------------------------------------------------------------------
+# satellite fee exclusion list
+#
+# Items (variant_id) the user has taken out of the satellite fee calculation.
+# fees.duckdb is opened read-only and is never touched: the list lives in a
+# small JSON file (SAT_EXCLUSIONS_PATH, on its own volume in the deployment)
+# and is applied as a WHERE term at query time, so removing an item from the
+# list restores it instantly and exactly.
+#
+# Only sat_cube carries variant_id, so only queries over sat_cube -- or ones
+# that can subtract a sat_cube slice (bucket / product type / contract state
+# splits) -- honour the list. The daily trend, facility ranking, rate
+# histogram and the Satellite cities tab have no item grain; the UI says so
+# rather than showing them as if they were adjusted.
+# --------------------------------------------------------------------------
+
+EXCL_PATH = os.environ.get("SAT_EXCLUSIONS_PATH",
+                           os.path.join(HERE, "state", "sat_exclusions.json"))
+_excl_lock = threading.Lock()
+
+
+def _excl_load():
+    try:
+        with open(EXCL_PATH) as f:
+            items = json.load(f).get("items", [])
+        return [i for i in items if i.get("variant_id")]
+    except FileNotFoundError:
+        return []
+
+
+def _excl_save(items):
+    """Atomic write: a crash mid-save never leaves a half-written list."""
+    os.makedirs(os.path.dirname(os.path.abspath(EXCL_PATH)), exist_ok=True)
+    tmp = EXCL_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"items": items}, f, indent=1)
+    os.replace(tmp, EXCL_PATH)
+
+
+def excl_ids():
+    with _excl_lock:
+        return [str(i["variant_id"]) for i in _excl_load()]
+
+
+def excl_clause(excl="on", col="variant_id"):
+    """(fragment, params) dropping excluded items. excl='off' ignores the list."""
+    ids = excl_ids() if excl != "off" else []
+    if not ids:
+        return "TRUE", []
+    return f"NOT list_contains(?::VARCHAR[], CAST({col} AS VARCHAR))", [ids]
+
+
+def only_excl_clause(col="variant_id"):
+    """(fragment, params) keeping ONLY excluded items -- to size what was removed."""
+    ids = excl_ids()
+    if not ids:
+        return "FALSE", []
+    return f"list_contains(?::VARCHAR[], CAST({col} AS VARCHAR))", [ids]
 
 
 # --------------------------------------------------------------------------
@@ -478,7 +539,7 @@ SAT_DIMS = {
 
 
 def sat_filters(scope, city, mfr, item, bucket, ptype, state, search, dim,
-                frm="", to=""):
+                frm="", to="", excl="on"):
     """Build the WHERE for a sat_cube query from the shared filter row.
 
     `search` applies to whichever dimension is being listed, so the same search
@@ -488,6 +549,9 @@ def sat_filters(scope, city, mfr, item, bucket, ptype, state, search, dim,
     where = [scope_clause(scope)]
     params = []
     f, p = month_range(frm, to)
+    where.append(f)
+    params += p
+    f, p = excl_clause(excl)
     where.append(f)
     params += p
     for col, val in (("city_key", city), ("mfr_id", mfr), ("variant_id", item),
@@ -508,9 +572,13 @@ def sat_filters(scope, city, mfr, item, bucket, ptype, state, search, dim,
 @app.get("/api/sat/kpis")
 def sat_kpis(scope: str = "sat", city: str = "", mfr: str = "", item: str = "",
              bucket: str = "", ptype: str = "", state: str = "",
-             frm: str = "", to: str = ""):
-    """Totals for the current slice, plus the same totals unscoped for contrast."""
-    w, p = sat_filters(scope, city, mfr, item, bucket, ptype, state, "", "", frm, to)
+             frm: str = "", to: str = "", excl: str = "on"):
+    """Totals for the current slice, plus the same totals unscoped for contrast.
+
+    `excluded_*` sizes what the exclusion list removed from this same slice.
+    """
+    w, p = sat_filters(scope, city, mfr, item, bucket, ptype, state, "", "", frm, to,
+                       excl)
     cur = one(f"""
         SELECT round(sum(fee), 2) AS fee, sum(net_qty) AS net_qty,
                sum(qty_sold) AS qty_sold, sum(qty_returned) AS qty_returned,
@@ -524,13 +592,23 @@ def sat_kpis(scope: str = "sat", city: str = "", mfr: str = "", item: str = "",
     # Same filters, both scopes -- so the UI can always show what the scope
     # toggle is excluding without a second round trip.
     w_all, p_all = sat_filters("all", city, mfr, item, bucket, ptype, state, "", "",
-                               frm, to)
+                               frm, to, excl)
     split = one(f"""
         SELECT round(sum(fee) FILTER (WHERE is_satellite), 2)     AS fee_on_list,
                round(sum(fee) FILTER (WHERE NOT is_satellite), 2) AS fee_off_list
         FROM sat_cube WHERE {w_all}
     """, p_all)
     cur.update(split)
+    w_x, p_x = sat_filters(scope, city, mfr, item, bucket, ptype, state, "", "",
+                           frm, to, "off")
+    fx, px = only_excl_clause()
+    cur.update(one(f"""
+        SELECT round(COALESCE(sum(fee), 0), 2) AS excluded_fee,
+               COALESCE(sum(net_qty), 0) AS excluded_net_qty,
+               count(DISTINCT variant_id) AS excluded_items
+        FROM sat_cube WHERE {w_x} AND {fx}
+    """, p_x + px))
+    cur["exclusions_applied"] = excl != "off" and bool(excl_ids())
     return cur
 
 
@@ -572,7 +650,7 @@ def sat_by(dim: str = "city", scope: str = "sat",
            search: str = "", sort: str = "fee",
            limit: int = Query(100, le=5000), offset: int = 0,
            frm: str = "", to: str = "",
-           fmt: str = "json"):
+           fmt: str = "json", excl: str = "on"):
     """Rank one dimension within the current slice -- the drilldown workhorse.
 
     dim=city with no filters is the city ranking; dim=mfr with city=X is
@@ -583,7 +661,7 @@ def sat_by(dim: str = "city", scope: str = "sat",
         raise HTTPException(400, f"dim must be one of {sorted(SAT_DIMS)}")
     key, label, _human = SAT_DIMS[dim]
     w, p = sat_filters(scope, city, mfr, item, bucket, ptype, state, search, dim,
-                       frm, to)
+                       frm, to, excl)
     order = {"fee": "fee DESC", "fee_asc": "fee ASC", "qty": "net_qty DESC",
              "name": "label ASC", "rate": "rate_per_unit DESC",
              "items": "items DESC", "mfrs": "mfrs DESC",
@@ -625,23 +703,46 @@ def sat_by(dim: str = "city", scope: str = "sat",
 
 
 @app.get("/api/sat/splits")
-def sat_splits(scope: str = "sat", frm: str = "", to: str = ""):
+def sat_splits(scope: str = "sat", frm: str = "", to: str = "", excl: str = "on"):
     """The categorical splits: MRP bucket, product type, contract state, rate."""
     s = scope_clause(scope)
     # month is in the grain of sat_split / sat_rate, so the period is a predicate.
     mf, mp = month_range(frm, to)
     s = f"{s} AND {mf}"
     cs, cp = city_stats_src(frm, to)
+    apply_excl = excl != "off" and bool(excl_ids())
+
+    def split(col):
+        rows = q(f"""SELECT {col} AS label, round(sum(fee),2) AS fee,
+                     sum(net_qty) AS net_qty, sum(n_rows) AS n_rows
+                     FROM sat_split WHERE {s} GROUP BY 1 ORDER BY fee DESC""", mp)
+        if not apply_excl:
+            return rows
+        # sat_split has no item grain, so subtract the excluded items' slice of
+        # sat_cube, which carries the same label columns. Totals reconcile
+        # exactly; per-label, sat_cube holds one bucket / state per item and
+        # manufacturer where sat_split is per row, so a label can shift by the
+        # rare item that changed bucket or contract state inside the window.
+        fx, px = only_excl_clause()
+        gone = {r["label"]: r for r in q(f"""
+            SELECT {col} AS label, sum(fee) AS fee, sum(net_qty) AS net_qty,
+                   sum(n_rows) AS n_rows
+            FROM sat_cube WHERE {s} AND {fx} GROUP BY 1""", mp + px)}
+        out = []
+        for r in rows:
+            g = gone.get(r["label"])
+            if g:
+                r = dict(r, fee=round((r["fee"] or 0) - (g["fee"] or 0), 2),
+                         net_qty=(r["net_qty"] or 0) - (g["net_qty"] or 0),
+                         n_rows=(r["n_rows"] or 0) - (g["n_rows"] or 0))
+            if r["n_rows"]:
+                out.append(r)
+        return sorted(out, key=lambda r: -(r["fee"] or 0))
+
     return {
-        "bucket": q(f"""SELECT bucket AS label, round(sum(fee),2) AS fee,
-                        sum(net_qty) AS net_qty, sum(n_rows) AS n_rows
-                        FROM sat_split WHERE {s} GROUP BY 1 ORDER BY fee DESC""", mp),
-        "product_type": q(f"""SELECT product_type AS label, round(sum(fee),2) AS fee,
-                        sum(net_qty) AS net_qty, sum(n_rows) AS n_rows
-                        FROM sat_split WHERE {s} GROUP BY 1 ORDER BY fee DESC""", mp),
-        "contract_state": q(f"""SELECT contract_state AS label, round(sum(fee),2) AS fee,
-                        sum(net_qty) AS net_qty, sum(n_rows) AS n_rows
-                        FROM sat_split WHERE {s} GROUP BY 1 ORDER BY fee DESC""", mp),
+        "bucket": split("bucket"),
+        "product_type": split("product_type"),
+        "contract_state": split("contract_state"),
         # Top per-unit rates by fee contribution. fee_amt is a RATE, so this is
         # a histogram over rate values, never a sum of them.
         "rate": q(f"""SELECT CAST(rate AS VARCHAR) AS label, rate,
@@ -686,10 +787,94 @@ def sat_facilities(scope: str = "sat", city: str = "", search: str = "",
     return rows
 
 
+# --- exclusion list CRUD. Search reads sat_cube over the full window and all
+# cities, so any item that ever carried a satellite fee can be found.
+
+@app.get("/api/sat/exclusions")
+def sat_exclusions():
+    """The exclusion list, each item with the fee it carries (full window)."""
+    with _excl_lock:
+        items = _excl_load()
+    ids = [str(i["variant_id"]) for i in items]
+    fees = {}
+    if ids:
+        fees = {r["id"]: r for r in q("""
+            SELECT CAST(variant_id AS VARCHAR) AS id, round(sum(fee), 2) AS fee,
+                   sum(net_qty) AS net_qty,
+                   round(sum(fee) FILTER (WHERE is_satellite), 2) AS fee_on_list
+            FROM sat_cube WHERE list_contains(?::VARCHAR[], CAST(variant_id AS VARCHAR))
+            GROUP BY 1""", [ids])}
+    for i in items:
+        f = fees.get(str(i["variant_id"]), {})
+        i.update(fee=f.get("fee") or 0, net_qty=f.get("net_qty") or 0,
+                 fee_on_list=f.get("fee_on_list") or 0)
+    return {"items": items,
+            "total_fee": round(sum(i["fee"] for i in items), 2),
+            "total_fee_on_list": round(sum(i["fee_on_list"] for i in items), 2)}
+
+
+@app.get("/api/sat/exclusions/search")
+def sat_exclusion_search(q_: str = Query("", alias="q"),
+                         limit: int = Query(25, le=200)):
+    """Items matching a name, manufacturer or exact variant id."""
+    term = q_.strip()
+    if len(term) < 2:
+        return []
+    ids = excl_ids()
+    rows = q("""
+        SELECT CAST(variant_id AS VARCHAR) AS variant_id,
+               any_value(item_name) AS item_name, any_value(mfr) AS mfr,
+               max(variant_mrp) AS variant_mrp,
+               round(sum(fee), 2) AS fee, sum(net_qty) AS net_qty,
+               count(DISTINCT city_key) AS cities
+        FROM sat_cube
+        WHERE lower(item_name) LIKE ? OR lower(mfr) LIKE ?
+           OR CAST(variant_id AS VARCHAR) = ?
+        GROUP BY 1 ORDER BY fee DESC LIMIT ?
+    """, ["%" + term.lower() + "%", "%" + term.lower() + "%", term, limit])
+    for r in rows:
+        r["excluded"] = r["variant_id"] in ids
+    return rows
+
+
+@app.post("/api/sat/exclusions")
+def sat_exclusion_add(body: dict = Body(...)):
+    """Add an item. Name and manufacturer come from the DB, not the client."""
+    vid = str(body.get("variant_id") or "").strip()
+    reason = str(body.get("reason") or "").strip()[:300]
+    if not vid:
+        raise HTTPException(400, "variant_id is required")
+    hit = one("""SELECT any_value(item_name) AS item_name, any_value(mfr) AS mfr,
+                        any_value(mfr_id) AS mfr_id
+                 FROM sat_cube WHERE CAST(variant_id AS VARCHAR) = ?""", [vid])
+    if not hit.get("item_name"):
+        raise HTTPException(404, f"variant_id {vid} not found in the satellite fee data")
+    with _excl_lock:
+        items = _excl_load()
+        if not any(str(i["variant_id"]) == vid for i in items):
+            items.append({"variant_id": vid, "item_name": hit["item_name"],
+                          "mfr": hit["mfr"], "mfr_id": hit["mfr_id"],
+                          "reason": reason,
+                          "added_at": time.strftime("%Y-%m-%d %H:%M:%S")})
+            _excl_save(items)
+    return sat_exclusions()
+
+
+@app.delete("/api/sat/exclusions/{variant_id}")
+def sat_exclusion_remove(variant_id: str):
+    """Put an item back into the satellite fee calculation."""
+    with _excl_lock:
+        items = _excl_load()
+        keep = [i for i in items if str(i["variant_id"]) != variant_id]
+        if len(keep) != len(items):
+            _excl_save(keep)
+    return sat_exclusions()
+
+
 @app.get("/api/sat/options")
 def sat_options(kind: str = "mfr", search: str = "", scope: str = "sat",
                 limit: int = Query(200, le=2000),
-                frm: str = "", to: str = ""):
+                frm: str = "", to: str = "", excl: str = "on"):
     """Typeahead options for the city / manufacturer filter pickers."""
     if kind == "city":
         key, label = "city_key", "city"
@@ -699,11 +884,12 @@ def sat_options(kind: str = "mfr", search: str = "", scope: str = "sat",
         raise HTTPException(400, "kind must be city or mfr")
     f, p = like(label, search)
     mf, mp = month_range(frm, to)
+    xf, xp = excl_clause(excl)
     return q(f"""
         SELECT {key} AS id, any_value({label}) AS label, round(sum(fee),2) AS fee
-        FROM sat_cube WHERE {scope_clause(scope)} AND {f} AND {mf}
+        FROM sat_cube WHERE {scope_clause(scope)} AND {f} AND {mf} AND {xf}
         GROUP BY {key} ORDER BY fee DESC LIMIT ?
-    """, p + mp + [limit])
+    """, p + mp + xp + [limit])
 
 
 # --------------------------------------------------------------------------

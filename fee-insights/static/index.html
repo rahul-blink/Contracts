@@ -602,6 +602,22 @@ ul.exec li::marker { color: var(--muted); }
   <div class="tiles" id="satTiles"></div>
   <div id="satScopeNote"></div>
 
+  <div class="card" id="satExclCard" style="margin-bottom:14px">
+    <div class="hd"><h3>Exclusion list <span class="n" id="sxCount"></span></h3>
+      <div class="acts"><label class="hint" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer">
+        <input type="checkbox" id="sxApply" checked> Apply to figures below</label></div></div>
+    <p class="sub">Items here are taken out of the satellite fee calculation. The source data is
+      not changed: untick <em>Apply</em> to see the original figures, or restore an item to put it back.</p>
+    <div class="filters" style="margin:0 0 8px">
+      <label class="fld grow"><span>Find an item to exclude</span>
+        <input type="search" id="sxSearch" placeholder="Item name, manufacturer or variant id (min 2 characters)"></label>
+      <label class="fld grow"><span>Reason (optional, saved with the item)</span>
+        <input type="text" id="sxReason" maxlength="300" placeholder="e.g. exempt per contract amendment"></label>
+    </div>
+    <div class="tw scrollY" style="max-height:240px" id="sxResWrap" hidden><table id="sxResTbl"></table></div>
+    <div class="tw scrollY" style="max-height:260px;margin-top:8px"><table id="sxListTbl"></table></div>
+  </div>
+
   <div class="filters">
     <label class="fld"><span>City scope</span>
       <select id="sScope">
@@ -1359,7 +1375,7 @@ const S = {
          mapMeasure: 'fee'},
   // drill holds the satellite drilldown stack: each entry pins one dimension.
   sat: {scope: 'sat', bucket: 'all', ptype: 'all', state: 'all',
-        dim: 'city', search: '', sort: 'fee', limit: 50,
+        dim: 'city', search: '', sort: 'fee', limit: 50, excl: true,
         drill: {city: '', cityLabel: '', mfr: '', mfrLabel: '', item: '', itemLabel: ''}},
   def: {ctype: '', search: '', limit: 50, ngram: 1, cloudTable: false},
   kam: {state: 'all', month: '', search: ''},
@@ -1901,7 +1917,72 @@ async function loadSat() {
   };
   fill('sBucket', sp.bucket); fill('sType', sp.product_type); fill('sState', sp.contract_state);
   ['chSatTrend','chSatBucket','chSatPtype','chSatBar','chSatRate'].forEach(watch);
-  await refreshSat();
+  await Promise.all([refreshSat(), loadExcl()]);
+}
+
+/* ---------- exclusion list ----------
+   Stored server-side (its own file, never fees.duckdb) and applied at query
+   time, so every change is instant and reversible. */
+async function apiSend(method, path, body) {
+  const r = await fetch(new URL(path, location.origin), {method,
+    headers: {'Content-Type': 'application/json'},
+    body: body ? JSON.stringify(body) : undefined});
+  if (!r.ok) {
+    let d = r.statusText;
+    try { d = (await r.json()).detail || d; } catch (e) {}
+    throw new Error(d);
+  }
+  return r.json();
+}
+function exclParam() { return S.sat.excl ? '' : 'off'; }
+
+function drawExclList(d) {
+  const items = d.items || [];
+  $('sxCount').textContent = items.length ? `${num(items.length)} item${items.length > 1 ? 's' : ''} · ${inr(d.total_fee)}` : '';
+  renderTable('sxListTbl', [
+    {k: 'item_name', h: 'Excluded item', w: '38%', title: (v, r) => `${v} — ${r.mfr || ''} (variant ${r.variant_id})`,
+     fmt: (v, r) => `${esc(v || '—')}<span class="sub2">${esc(r.mfr || '')} · variant ${esc(r.variant_id)}</span>`},
+    {k: 'reason', h: 'Reason', w: '22%', title: v => v || '',
+     fmt: (v, r) => `${esc(v || '—')}<span class="sub2">added ${esc(r.added_at || '')}</span>`},
+    {k: 'fee', h: 'Fee removed', w: '15%', num: true, title: v => inrFull(v), fmt: v => inr(v)},
+    {k: 'net_qty', h: 'Net units', w: '12%', num: true, cls: 'hn2', fmt: v => num(v)},
+    {k: 'variant_id', h: '', w: '13%', num: true,
+     fmt: v => `<button class="btn sm" data-restore="${esc(v)}">Restore</button>`},
+  ], items, {empty: 'No items excluded — every item is in the satellite fee calculation.'});
+  $('sxListTbl').querySelectorAll('button[data-restore]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { drawExclList(await apiSend('DELETE', '/api/sat/exclusions/' + encodeURIComponent(b.dataset.restore))); }
+    catch (e) { alert('Could not restore: ' + e.message); b.disabled = false; return; }
+    searchExcl(); refreshSat();
+  });
+}
+async function loadExcl() {
+  try { drawExclList(await api('/api/sat/exclusions')); }
+  catch (e) { $('sxListTbl').innerHTML = `<tbody><tr><td class="empty">${esc('Exclusion list unavailable: ' + e.message)}</td></tr></tbody>`; }
+}
+async function searchExcl() {
+  const term = $('sxSearch').value.trim();
+  const wrap = $('sxResWrap');
+  if (term.length < 2) { wrap.hidden = true; return; }
+  const rows = await api('/api/sat/exclusions/search', {q: term});
+  wrap.hidden = false;
+  renderTable('sxResTbl', [
+    {k: 'item_name', h: 'Item', w: '42%', title: (v, r) => `${v} — ${r.mfr || ''} (variant ${r.variant_id})`,
+     fmt: (v, r) => `${esc(v || '—')}<span class="sub2">${esc(r.mfr || '')} · variant ${esc(r.variant_id)}</span>`},
+    {k: 'variant_mrp', h: 'MRP', w: '10%', num: true, cls: 'hn2', fmt: v => v == null ? '—' : '₹' + num(v)},
+    {k: 'fee', h: 'Fee (all data)', w: '16%', num: true, title: v => inrFull(v), fmt: v => inr(v)},
+    {k: 'cities', h: 'Cities', w: '10%', num: true, cls: 'hn', fmt: v => num(v)},
+    {k: 'variant_id', h: '', w: '14%', num: true,
+     fmt: (v, r) => r.excluded ? '<span class="dim">excluded</span>'
+       : `<button class="btn sm" data-excl="${esc(v)}">Exclude</button>`},
+  ], rows, {empty: 'No item with a satellite fee matches that search.'});
+  $('sxResTbl').querySelectorAll('button[data-excl]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { drawExclList(await apiSend('POST', '/api/sat/exclusions',
+            {variant_id: b.dataset.excl, reason: $('sxReason').value})); }
+    catch (e) { alert('Could not exclude: ' + e.message); b.disabled = false; return; }
+    searchExcl(); refreshSat();
+  });
 }
 
 function satParams(extra) {
@@ -1911,7 +1992,7 @@ function satParams(extra) {
     bucket: S.sat.bucket === 'all' ? '' : S.sat.bucket,
     ptype: S.sat.ptype === 'all' ? '' : S.sat.ptype,
     state: S.sat.state === 'all' ? '' : S.sat.state,
-    city: d.city, mfr: d.mfr, item: d.item,
+    city: d.city, mfr: d.mfr, item: d.item, excl: exclParam(),
   }, extra || {});
 }
 
@@ -1927,13 +2008,16 @@ async function refreshSat() {
           search: S.sat.search, limit: S.sat.limit})
       : api('/api/sat/by', satParams({dim: S.sat.dim, search: S.sat.search,
           sort: S.sat.sort, limit: S.sat.limit})),
-    api('/api/sat/splits', {scope: S.sat.scope}),
+    api('/api/sat/splits', {scope: S.sat.scope, excl: exclParam()}),
   ]);
   busy($('satByWrap'), false);
 
   const onList = kp.fee_on_list || 0, offList = kp.fee_off_list || 0;
   $('satTiles').innerHTML = [
-    tile('Satellite fee — current slice', inr(kp.fee), scopeLabel(), 'hero accent'),
+    tile('Satellite fee — current slice', inr(kp.fee),
+         scopeLabel() + (kp.excluded_items
+           ? (kp.exclusions_applied ? ` · ${inr(kp.excluded_fee)} excluded` : ' · exclusions off')
+           : ''), 'hero accent'),
     tile('Net units sold', num(kp.net_qty),
          `${num(kp.qty_sold)} sold − ${num(kp.qty_returned)} returned`),
     tile('Average fee per unit', kp.rate_per_unit == null ? '—' : '₹' + num(kp.rate_per_unit, 2),
@@ -1954,6 +2038,14 @@ async function refreshSat() {
             + `${inrFull(offList)} in total. This view exists to size the problem, not to report revenue.`)
         : ''));
 
+  if (kp.exclusions_applied && kp.excluded_items) {
+    $('satScopeNote').innerHTML += noteHTML('info', 'Exclusion list applied',
+      `${num(kp.excluded_items)} excluded item${kp.excluded_items > 1 ? 's' : ''} removed `
+      + `${inrFull(kp.excluded_fee)} (${num(kp.excluded_net_qty)} net units) from this slice. `
+      + `Totals, the breakdown table, the top-12 chart and the MRP bucket / product type charts `
+      + `reflect this. The daily trend, per-unit rate chart, serving-facility table and the `
+      + `Satellite cities tab have no item-level detail, so they still include excluded items.`);
+  }
   drawSatTrend(tr);
   drawSatSplits(sp);
   drawSatBy(by);
@@ -3392,6 +3484,9 @@ function wire() {
         sort: S.sat.sort, limit: 5000}));
   $('fCsv').onclick = () => dl('/api/sat/facilities',
     {scope: S.sat.scope, city: S.sat.drill.city, limit: 2000});
+  $('sxSearch').oninput = debounce(() => searchExcl().catch(e =>
+    alert('Search failed: ' + e.message)));
+  $('sxApply').onchange = e => { S.sat.excl = e.target.checked; refreshSat(); };
 
   // --- defects
   $('dType').onchange = e => { S.def.ctype = e.target.value; refreshDefects(); };

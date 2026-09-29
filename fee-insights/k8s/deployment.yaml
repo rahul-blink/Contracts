@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fee-insights
+  labels:
+    app: fee-insights
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fee-insights
+  # maxUnavailable 0: the old pod keeps serving until the new one passes
+  # its readiness probe, so a bad build never takes the dashboard down.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: fee-insights
+    spec:
+      containers:
+        - name: web
+          image: fee-insights
+          ports:
+            - containerPort: 8000
+          env:
+            # Pod-network bind so the ClusterIP Service can reach the app;
+            # chef-server owns the public route, TLS and auth.
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "8000"
+            - name: SAT_EXCLUSIONS_PATH
+              value: /state/sat_exclusions.json
+          volumeMounts:
+            # A new path -- never mounted over /app, where fees.duckdb lives.
+            - name: state
+              mountPath: /state
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: fee-insights-state

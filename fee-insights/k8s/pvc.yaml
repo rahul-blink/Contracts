@@ -1,0 +1,14 @@
+# Holds only the satellite fee exclusion list (a small JSON file). fees.duckdb
+# stays in the image, read-only; nothing on this volume is needed to serve it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fee-insights-state
+  labels:
+    app: fee-insights
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
