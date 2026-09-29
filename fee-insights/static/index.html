@@ -674,6 +674,12 @@ ul.exec li::marker { color: var(--muted); }
         <button data-dim="facility" aria-pressed="false">Facility</button>
       </div>
     </label>
+    <label class="fld"><span>Manufacturers</span>
+      <select id="sOptin" title="Which manufacturers the breakdown table and top-12 chart include">
+        <option value="in">Opted in</option>
+        <option value="all">All with satellite clause</option>
+        <option value="out">Opted out only</option>
+      </select></label>
     <label class="fld grow"><span>Search within breakdown</span>
       <input type="search" id="sSearch" placeholder="Filter the rows below"></label>
     <label class="fld"><span>Sort</span>
@@ -1391,7 +1397,7 @@ const S = {
          mapMeasure: 'fee'},
   // drill holds the satellite drilldown stack: each entry pins one dimension.
   sat: {scope: 'sat', bucket: 'all', ptype: 'all', state: 'all',
-        dim: 'city', search: '', sort: 'fee', limit: 50, excl: true,
+        dim: 'city', search: '', sort: 'fee', limit: 50, excl: true, optin: 'in',
         drill: {city: '', cityLabel: '', mfr: '', mfrLabel: '', item: '', itemLabel: ''}},
   def: {ctype: '', search: '', limit: 50, ngram: 1, cloudTable: false},
   kam: {state: 'all', month: '', search: ''},
@@ -2057,7 +2063,7 @@ async function refreshSat() {
       ? api('/api/sat/facilities', {scope: S.sat.scope, city: p.city,
           search: S.sat.search, limit: S.sat.limit})
       : api('/api/sat/by', satParams({dim: S.sat.dim, search: S.sat.search,
-          sort: S.sat.sort, limit: S.sat.limit})),
+          sort: S.sat.sort, limit: S.sat.limit, optin: S.sat.optin})),
     api('/api/sat/splits', {scope: S.sat.scope, excl: exclParam()}),
   ]);
   busy($('satByWrap'), false);
@@ -2158,6 +2164,14 @@ function drawSatTrend(tr) {
     ? [mk('On satellite list', 'fee_on_list', T().s1),
        mk('Off list', 'fee_off_list', T().s2)]
     : [mk('Satellite fee', 'fee', T().s1)];
+  // Counterfactual: the same slice if every manufacturer in scope opted in.
+  // Dashed and unfilled so it reads as "what it would be", not a second actual.
+  const showPot = S.sat.excl;
+  const potColor = CSSVar('--s3');
+  if (showPot) series.push(Object.assign(mk('If all opted in', 'fee_potential', potColor), {
+    lineStyle: {width: 2, type: 'dashed', color: potColor},
+    areaStyle: null, z: 1,
+  }));
 
   chart('chSatTrend').setOption(Object.assign(baseOpt(), {
     grid: {left: 6, right: 62, top: 14, bottom: 4, containLabel: true},
@@ -2174,13 +2188,23 @@ function drawSatTrend(tr) {
     yAxis: valAxis(t, {axisLabel: {formatter: money}}),
     series,
   }), true);
-  setLegend('lgSatTrend', showSplit
+  const leg = showSplit
     ? [{label: 'On satellite list', color: T().s1, line: true},
        {label: 'Off list (not satellite)', color: T().s2, line: true}]
-    : []);   // one series -> no legend box; the card title names it
+    : (showPot ? [{label: 'Satellite fee (opted in)', color: T().s1, line: true}] : []);
+  if (showPot) leg.push({label: 'If all opted in', color: potColor, line: true});
+  setLegend('lgSatTrend', leg);   // one series -> no legend box; the card title names it
   const n = tr.length;
+  let potTxt = '';
+  if (showPot && n) {
+    const act = tr.reduce((a, r) => a + (r.fee || 0), 0);
+    const pot = tr.reduce((a, r) => a + (r.fee_potential || 0), 0);
+    potTxt = pot - act > 0.5
+      ? ` Opt-outs cost ${inrFull(pot - act)} over these days (${inr(act)} vs ${inr(pot)} if all opted in).`
+      : ' No manufacturer in this slice has opted out, so the dashed line equals the actual.';
+  }
   $('satTrendSub').textContent = n
-    ? `${n} day${n > 1 ? 's' : ''}, ${tr[0].day} → ${tr[n - 1].day}. Fee accrued per day for the current slice.`
+    ? `${n} day${n > 1 ? 's' : ''}, ${tr[0].day} → ${tr[n - 1].day}. Fee accrued per day for the current slice.` + potTxt
     : 'No days in this slice.';
 }
 
@@ -2247,7 +2271,9 @@ function drawSatBy(by) {
   $('satBySub').textContent = isFac
     ? `${num(list.length)} facilities in this slice.`
     : `${num(tot.groups)} ${SAT_DIM_LABEL[dim].toLowerCase()} values in this slice, totalling ${inr(tot.fee)}. `
-      + (dim === 'item' ? 'This is the item-level leaf.' : 'Click a row to drill down.');
+      + (dim === 'item' ? 'This is the item-level leaf.' : 'Click a row to drill down.')
+      + (!S.sat.excl ? '' : S.sat.optin === 'all' ? ' Showing every manufacturer with the satellite clause, opted out or not.'
+         : S.sat.optin === 'out' ? ' Showing only opted-out manufacturers: fee that would be charged if they opted in.' : '');
 
   let maxFee = 0; list.forEach(r => { if (r.fee > maxFee) maxFee = r.fee; });
 
@@ -2264,7 +2290,9 @@ function drawSatBy(by) {
     fmt: (v, r) => v == null ? '—' : '₹' + num(v),
     title: (v, r) => `MRP ₹${num(v)} vs threshold ₹${num(r.mrp_threshold)} → ${r.bucket || ''}`});
   if (dim === 'mfr') cols.push({k: 'contract_state', h: 'Contract', w: '13%',
-    cls: 'hn2', fmt: v => stateBadge(v)});
+    cls: 'hn2', fmt: v => stateBadge(v)},
+    {k: 'opted_in', h: 'Opt-in', w: '11%', cls: 'hn2',
+     fmt: v => v === false ? '<span class="badge warn">Out</span>' : '<span class="badge on">In</span>'});
   if (isFac) cols.push({k: 'cities', h: 'Cities', w: '9%', num: true, fmt: v => num(v)});
   cols.push(
     {k: 'fee', h: 'Fee', w: '16%', num: true, cls: 'barcell',
@@ -3537,12 +3565,13 @@ function wire() {
   $('sCsv').onclick = () => S.sat.dim === 'facility'
     ? dl('/api/sat/facilities', {scope: S.sat.scope, city: S.sat.drill.city, limit: 2000})
     : dl('/api/sat/by', satParams({dim: S.sat.dim, search: S.sat.search,
-        sort: S.sat.sort, limit: 5000}));
+        sort: S.sat.sort, limit: 5000, optin: S.sat.optin}));
   $('fCsv').onclick = () => dl('/api/sat/facilities',
     {scope: S.sat.scope, city: S.sat.drill.city, limit: 2000});
   $('sxSearch').oninput = debounce(() => searchExcl().catch(e =>
     alert('Search failed: ' + e.message)));
   $('sxApply').onchange = e => { S.sat.excl = e.target.checked; refreshSat(); };
+  $('sOptin').onchange = e => { S.sat.optin = e.target.value; refreshSat(); };
   $('soSearch').oninput = debounce(() => loadOptin());
   $('soStatus').onchange = () => loadOptin();
 

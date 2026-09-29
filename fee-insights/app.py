@@ -590,19 +590,30 @@ SAT_DIMS = {
 
 
 def sat_filters(scope, city, mfr, item, bucket, ptype, state, search, dim,
-                frm="", to="", excl="on"):
+                frm="", to="", excl="on", optin="in"):
     """Build the WHERE for a sat_cube query from the shared filter row.
 
     `search` applies to whichever dimension is being listed, so the same search
     box filters cities on the city view and items on the item view. The global
     period is just another term here: `month` is in sat_cube's grain.
+
+    `optin` picks the manufacturer set when the lists are applied: 'in'
+    (default) drops opted-out manufacturers, 'all' keeps every manufacturer
+    with the satellite clause, 'out' keeps only the opted-out ones. Item
+    exclusions apply in every mode.
     """
     where = [scope_clause(scope)]
     params = []
     f, p = month_range(frm, to)
     where.append(f)
     params += p
-    f, p = excl_clause(excl)
+    if optin == "in" or excl == "off":
+        f, p = excl_clause(excl)
+    else:
+        f, p = excl_clause(excl, mfr_col=None)
+        if optin == "out":
+            fo, po = only_excl_clause(None, "mfr_id")
+            f, p = f"{f} AND {fo}", p + po
     where.append(f)
     params += p
     for col, val in (("city_key", city), ("mfr_id", mfr), ("variant_id", item),
@@ -698,18 +709,20 @@ def sat_trend(scope: str = "sat", city: str = "", mfr: str = "",
     where.append(f)
     params += p
     # mfr_id is in this table's grain, so manufacturer opt-outs apply exactly;
-    # item exclusions cannot (no variant_id here).
+    # item exclusions cannot (no variant_id here). The opt-outs are a FILTER
+    # rather than a WHERE so the same pass also returns fee_potential: the
+    # day's fee if every manufacturer in scope opted in.
     f, p = excl_clause(excl, col=None)
-    where.append(f)
-    params += p
     return q(f"""
         SELECT CAST(day AS VARCHAR) AS day,
-               round(sum(fee), 2) AS fee, sum(net_qty) AS net_qty,
-               round(sum(fee) FILTER (WHERE is_satellite), 2)     AS fee_on_list,
-               round(sum(fee) FILTER (WHERE NOT is_satellite), 2) AS fee_off_list
+               round(COALESCE(sum(fee) FILTER (WHERE {f}), 0), 2) AS fee,
+               COALESCE(sum(net_qty) FILTER (WHERE {f}), 0) AS net_qty,
+               round(sum(fee) FILTER (WHERE is_satellite AND {f}), 2)     AS fee_on_list,
+               round(sum(fee) FILTER (WHERE NOT is_satellite AND {f}), 2) AS fee_off_list,
+               round(sum(fee), 2) AS fee_potential
         FROM sat_day_city_mfr WHERE {" AND ".join(where)}
         GROUP BY day ORDER BY day
-    """, params)
+    """, p * 4 + params)
 
 
 @app.get("/api/sat/by")
@@ -719,7 +732,7 @@ def sat_by(dim: str = "city", scope: str = "sat",
            search: str = "", sort: str = "fee",
            limit: int = Query(100, le=5000), offset: int = 0,
            frm: str = "", to: str = "",
-           fmt: str = "json", excl: str = "on"):
+           fmt: str = "json", excl: str = "on", optin: str = "in"):
     """Rank one dimension within the current slice -- the drilldown workhorse.
 
     dim=city with no filters is the city ranking; dim=mfr with city=X is
@@ -730,7 +743,7 @@ def sat_by(dim: str = "city", scope: str = "sat",
         raise HTTPException(400, f"dim must be one of {sorted(SAT_DIMS)}")
     key, label, _human = SAT_DIMS[dim]
     w, p = sat_filters(scope, city, mfr, item, bucket, ptype, state, search, dim,
-                       frm, to, excl)
+                       frm, to, excl, optin)
     order = {"fee": "fee DESC", "fee_asc": "fee ASC", "qty": "net_qty DESC",
              "name": "label ASC", "rate": "rate_per_unit DESC",
              "items": "items DESC", "mfrs": "mfrs DESC",
@@ -761,6 +774,10 @@ def sat_by(dim: str = "city", scope: str = "sat",
         FROM sat_cube WHERE {w}
         GROUP BY {key} ORDER BY {order} LIMIT ? OFFSET ?
     """, p + [limit, offset])
+    if dim == "mfr":
+        mids = set(optout_ids())
+        for r in rows:
+            r["opted_in"] = str(r["id"]) not in mids
     if fmt == "csv":
         return csv_response(rows, f"satellite_fees_by_{dim}")
     tot = one(f"""
