@@ -1,0 +1,20 @@
+apiVersion: skaffold/v4beta6
+kind: Config
+metadata:
+    name: contracts-fees-insights
+    annotations:
+        chef/namespace: blinkit-apps-saxena-rahul
+        chef/s3-prefix: s3://blinkit-ai-chef-builds/blinkit-apps-saxena-rahul/contracts-fees-insights/
+        chef/subdomain: active-mouse
+build:
+    artifacts:
+        - image: 501578625374.dkr.ecr.ap-south-1.amazonaws.com/chef/blinkit-apps-saxena-rahul/contracts-fees-insights/contracts-fees-insights
+          context: .
+          docker:
+            dockerfile: Dockerfile
+deploy:
+    kubectl:
+        manifests:
+            - k8s/pvc.yaml
+            - k8s/deployment.yaml
+            - k8s/service.yaml

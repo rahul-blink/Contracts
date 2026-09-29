@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contracts &amp; Fees Insights</title>
+<script src="/static/echarts.min.js"></script>
+<style>
+  :root {
+    --page:#f9f9f7; --surface:#fcfcfb; --surface-2:#ffffff;
+    --text-1:#0b0b0b; --text-2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+    --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+    --good:#0ca30c; --critical:#d03b3b;
+    --shadow:0 1px 2px rgba(11,11,11,.04),0 4px 16px rgba(11,11,11,.05);
+  }
+  html[data-theme="dark"] {
+    --page:#0d0d0d; --surface:#1a1a19; --surface-2:#202020;
+    --text-1:#ffffff; --text-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+    --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+    --good:#0ca30c; --critical:#d03b3b;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.4);
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--page); color:var(--text-1);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif; font-size:14px;
+  }
+  header {
+    display:flex; align-items:center; gap:16px; padding:16px 24px;
+    background:var(--surface); border-bottom:1px solid var(--border); flex-wrap:wrap;
+  }
+  header h1 { font-size:18px; margin:0; font-weight:650; letter-spacing:-.01em; }
+  header .sub { color:var(--muted); font-size:12.5px; }
+  header .spacer { flex:1; }
+  .theme-btn {
+    background:var(--surface-2); border:1px solid var(--border); color:var(--text-2);
+    border-radius:8px; padding:7px 12px; cursor:pointer; font-size:13px;
+  }
+  .theme-btn:hover { color:var(--text-1); }
+  nav { display:flex; gap:2px; padding:0 24px; background:var(--surface);
+        border-bottom:1px solid var(--border); overflow-x:auto; }
+  nav button {
+    background:none; border:none; border-bottom:2px solid transparent; color:var(--text-2);
+    padding:12px 16px; cursor:pointer; font-size:14px; font-weight:500; white-space:nowrap;
+  }
+  nav button:hover { color:var(--text-1); }
+  nav button.active { color:var(--s1); border-bottom-color:var(--s1); font-weight:600; }
+  main { padding:24px; max-width:1400px; margin:0 auto; }
+  .tab { display:none; } .tab.active { display:block; }
+  .grid { display:grid; gap:16px; }
+  .kpis { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); margin-bottom:20px; }
+  .kpi {
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:16px 18px; box-shadow:var(--shadow);
+  }
+  .kpi .label { color:var(--muted); font-size:12px; text-transform:uppercase;
+                letter-spacing:.04em; margin-bottom:8px; }
+  .kpi .value { font-size:26px; font-weight:650; letter-spacing:-.02em; }
+  .kpi .value.accent { color:var(--s1); }
+  .kpi .value.danger { color:var(--critical); }
+  .kpi .foot { color:var(--text-2); font-size:12px; margin-top:6px; }
+  .cards { grid-template-columns:repeat(12,1fr); }
+  .card {
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:16px 18px; box-shadow:var(--shadow); grid-column:span 12; min-width:0;
+  }
+  .card.half { grid-column:span 6; } .card.third { grid-column:span 4; }
+  .card.two-third { grid-column:span 8; }
+  @media(max-width:900px){ .card.half,.card.third,.card.two-third{grid-column:span 12;} }
+  .card h3 { margin:0 0 2px; font-size:14.5px; font-weight:600; }
+  .card .desc { color:var(--muted); font-size:12px; margin-bottom:12px; }
+  .chart { width:100%; height:320px; }
+  .chart.tall { height:400px; }
+  .chart.short { height:260px; }
+  .filters { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+  .filters label { color:var(--muted); font-size:12px; margin-right:4px; }
+  select {
+    background:var(--surface); color:var(--text-1); border:1px solid var(--border);
+    border-radius:8px; padding:7px 10px; font-size:13px; min-width:180px;
+  }
+  .loading { color:var(--muted); padding:40px; text-align:center; }
+  .pill { display:inline-block; background:var(--surface-2); border:1px solid var(--border);
+          border-radius:999px; padding:3px 10px; font-size:12px; color:var(--text-2); margin-right:6px; }
+  .dlbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;
+           background:var(--surface); border:1px solid var(--border); border-radius:10px;
+           padding:10px 12px; box-shadow:var(--shadow); }
+  .dlbar .dl-label { font-weight:600; font-size:13px; margin-right:4px; }
+  .dlbar label { color:var(--muted); font-size:12px; }
+  .dlbar input[type=date] { background:var(--surface); color:var(--text-1);
+           border:1px solid var(--border); border-radius:8px; padding:6px 8px; font-size:13px; }
+  .dlbar select { min-width:240px; }
+  .dlbar .spacer { flex:1; }
+  .dlbar .theme-btn { padding:6px 10px; }
+  .rtable { font-size:12.5px; overflow:auto; }
+  .rtable table { width:100%; border-collapse:collapse; }
+  .rtable th, .rtable td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); }
+  .rtable th { color:var(--muted); font-weight:600; text-transform:uppercase; font-size:11px; letter-spacing:.03em; }
+  .rtable td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .rtable.scroll { max-height:360px; }
+  .rtable thead th { position:sticky; top:0; background:var(--surface); }
+  .note { background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--s1);
+          border-radius:10px; padding:12px 14px; margin-bottom:16px; color:var(--text-2);
+          font-size:12.5px; line-height:1.55; box-shadow:var(--shadow); }
+  .note b { color:var(--text-1); }
+  .note code { background:var(--surface-2); border:1px solid var(--border); border-radius:5px;
+               padding:1px 5px; font-size:11.5px; }
+  .tsearch { width:100%; max-width:320px; margin-bottom:10px; background:var(--surface);
+             color:var(--text-1); border:1px solid var(--border); border-radius:8px;
+             padding:7px 10px; font-size:13px; }
+  .cloud { display:flex; flex-wrap:wrap; align-items:center; justify-content:center;
+           gap:6px 14px; padding:18px 12px; min-height:300px; line-height:1.1; }
+  .cloud span { display:inline-block; cursor:default; transition:opacity .15s; }
+  .cloud span:hover { opacity:.6; }
+  .dropzone { border:1.5px dashed var(--axis); border-radius:10px; padding:26px 16px;
+              text-align:center; cursor:pointer; color:var(--text-2); background:var(--surface-2);
+              transition:border-color .15s,background .15s; }
+  .dropzone:hover, .dropzone.drag { border-color:var(--s1); background:var(--surface); }
+  #uploadList { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
+  .up-row { display:flex; align-items:center; gap:10px; font-size:12.5px;
+            border:1px solid var(--border); border-radius:8px; padding:7px 10px; background:var(--surface-2); }
+  .up-row .fname { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .up-row .fmeta { color:var(--muted); font-size:11.5px; white-space:nowrap; }
+  .up-bar { flex:0 0 90px; height:6px; border-radius:999px; background:var(--grid); overflow:hidden; }
+  .up-bar > i { display:block; height:100%; width:0; background:var(--s1); transition:width .2s; }
+  .up-ok { color:var(--good); } .up-err { color:var(--critical); }
+  .badge { display:inline-block; border-radius:999px; padding:2px 9px; font-size:11px; font-weight:600; }
+  .badge.ready { background:color-mix(in srgb, var(--good) 16%, transparent); color:var(--good); }
+  .badge.missing { background:color-mix(in srgb, var(--critical) 16%, transparent); color:var(--critical); }
+  .rebuild-log { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
+                 line-height:1.5; white-space:pre-wrap; color:var(--text-2); max-height:300px;
+                 overflow:auto; background:var(--surface-2); border:1px solid var(--border);
+                 border-radius:8px; padding:12px 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Contracts &amp; Fees Insights</h1>
+  <span class="sub" id="daterange">Blinkit · fees &amp; contracts analytics</span>
+  <span class="spacer"></span>
+  <span class="sub" id="footnote"></span>
+  <button class="theme-btn" id="themeBtn">◐ Theme</button>
+</header>
+<nav id="nav">
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="satellite">Satellite City Fees</button>
+  <button data-tab="returns">Defective Returns</button>
+  <button data-tab="purchase_returns">Purchase Returns</button>
+  <button data-tab="ads">Ads Spend</button>
+  <button data-tab="contracts">Contracts</button>
+  <button data-tab="data">Manage Data</button>
+</nav>
+<main>
+  <section class="tab active" id="tab-overview">
+    <div class="dlbar" id="dl-overview"></div>
+    <div class="grid kpis" id="kpis"><div class="loading">Loading…</div></div>
+    <div class="grid cards">
+      <div class="card two-third"><h3>Satellite fee — daily trend</h3>
+        <div class="desc">Total applicable satellite fee &amp; units sold per day (Apr–Jun 2026)</div>
+        <div class="chart" id="ov_fee"></div></div>
+      <div class="card third"><h3>Fee by chain &amp; MRP tier</h3>
+        <div class="desc">Share of satellite fee</div>
+        <div class="chart" id="ov_split"></div></div>
+      <div class="card two-third"><h3>Defective-return penalty — daily trend</h3>
+        <div class="desc">Penalty (₹) levied on complaints per day</div>
+        <div class="chart" id="ov_pen"></div></div>
+      <div class="card third"><h3>Penalty by complaint type</h3>
+        <div class="desc">Top complaint categories</div>
+        <div class="chart" id="ov_type"></div></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-satellite">
+    <div class="dlbar" id="dl-satellite"></div>
+    <div class="note">
+      <b>What is “satellite fee (applicable)”?</b> It is <code>net units sold × per-unit fee rate</code>
+      for items whose MRP meets the tier threshold — i.e. the satellite fee applicable across
+      <b>all</b> satellite sales, computed regardless of contract state (Pending approval / Draft /
+      Approved), <b>not only where the satellite clause is finalised/aligned</b>. Every fee figure on
+      this dashboard is this applicable fee.
+    </div>
+    <div class="filters">
+      <div><label>City</label><select id="f_city"><option value="all">All cities</option></select></div>
+      <div><label>Manufacturer</label><select id="f_mfr"><option value="all">All manufacturers</option></select></div>
+      <span class="pill" id="sat_note"></span>
+    </div>
+    <div class="grid cards">
+      <div class="card"><h3>Satellite fee over time</h3>
+        <div class="desc">Daily applicable fee and units sold</div>
+        <div class="chart tall" id="sat_daily"></div></div>
+      <div class="card half"><h3>Top cities by fee</h3>
+        <div class="desc">Highest last-mile fee contribution</div>
+        <div class="chart tall" id="sat_city"></div></div>
+      <div class="card half"><h3>Top manufacturers by fee</h3>
+        <div class="desc">Highest last-mile fee contribution</div>
+        <div class="chart tall" id="sat_mfr"></div></div>
+      <div class="card half"><h3>Top facilities by fee</h3>
+        <div class="desc">Dispatch warehouses generating satellite fee</div>
+        <div class="chart tall" id="sat_facility"></div></div>
+      <div class="card half"><h3>Fee vs. distance band</h3>
+        <div class="desc">Total fee by back-end→city distance (satellite cities only)</div>
+        <div class="chart" id="sat_dist"></div></div>
+      <div class="card half"><h3>Fee by chain &amp; MRP tier</h3>
+        <div class="desc">Ambient vs cold chain · item MRP above/below threshold</div>
+        <div class="chart" id="sat_split"></div></div>
+      <div class="card"><h3>All satellite cities</h3>
+        <div class="desc">Master list of <span id="sat_ncities">…</span> satellite cities · back-end min distance &amp; fee generated. Type to filter.</div>
+        <input type="text" id="sat_city_search" class="tsearch" placeholder="Filter cities…">
+        <div id="sat_city_table" class="rtable scroll"></div></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-returns">
+    <div class="dlbar" id="dl-returns"></div>
+    <div class="note" id="ret_summary" style="border-left-color:var(--s8)"></div>
+    <div class="grid kpis" id="ret_kpis"></div>
+    <div class="filters">
+      <div><label>Complaint type</label><select id="f_ctype"><option value="all">All complaint types</option></select></div>
+    </div>
+    <div class="grid cards">
+      <div class="card"><h3>Penalty, units &amp; complaints over time</h3>
+        <div class="desc">Daily defective-return penalty, units returned and complaint volume</div>
+        <div class="chart tall" id="ret_daily"></div></div>
+      <div class="card half"><h3>Penalty by complaint type</h3>
+        <div class="desc">Penalty ₹ (units returned in tooltip)</div>
+        <div class="chart tall" id="ret_type"></div></div>
+      <div class="card half"><h3>Units returned by complaint type</h3>
+        <div class="desc">Defective units by category</div>
+        <div class="chart tall" id="ret_type_qty"></div></div>
+      <div class="card half"><h3>Top manufacturers — penalty &amp; units</h3>
+        <div class="desc">Suppliers with highest return penalties</div>
+        <div class="chart tall" id="ret_mfr"></div></div>
+      <div class="card half"><h3>Top items — penalty &amp; units</h3>
+        <div class="desc">Individual SKUs driving return penalties</div>
+        <div class="chart tall" id="ret_item"></div></div>
+      <div class="card"><h3>Defect keywords in comments</h3>
+        <div class="desc">Most-cited product-defect words in customer return comments (defect vocabulary only)</div>
+        <div id="ret_cloud" class="cloud"></div></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-purchase_returns">
+    <div class="dlbar" id="dl-purchase_returns"></div>
+    <div class="grid kpis" id="pr_kpis"></div>
+    <div class="grid cards">
+      <div class="card half"><h3>Units returned by manufacturer</h3>
+        <div class="desc">Product-recall (PRN) quantity per manufacturer</div>
+        <div class="chart tall" id="pr_qty"></div></div>
+      <div class="card half"><h3>Recall fee by manufacturer</h3>
+        <div class="desc">Total recall-assistance charges per manufacturer</div>
+        <div class="chart tall" id="pr_fee"></div></div>
+      <div class="card"><h3>Recall-assistance PRN log</h3>
+        <div class="desc">Every product-recall notice · from recall_assistance_prn</div>
+        <div id="pr_table" class="rtable scroll"></div></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-ads">
+    <div class="dlbar" id="dl-ads"></div>
+    <div class="grid kpis" id="ads_kpis"></div>
+    <div class="grid cards">
+      <div class="card two-third"><h3>Committed ads-spend % by manufacturer</h3>
+        <div class="desc">Minimum ads-spend value committed (% of basis) · top aligned manufacturers</div>
+        <div class="chart tall" id="ads_mfr"></div></div>
+      <div class="card third"><h3>Alignment status</h3>
+        <div class="desc">Contracts with a min ads-spend clause</div>
+        <div class="chart" id="ads_enabled"></div></div>
+      <div class="card third"><h3>Min ads-spend basis</h3>
+        <div class="desc">Basis for the committed spend (aligned only)</div>
+        <div class="chart" id="ads_basis"></div></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-contracts">
+    <div class="dlbar" id="dl-contracts"></div>
+    <div class="grid kpis" id="c_kpis"></div>
+    <div class="grid cards">
+      <div class="card third"><h3>Contract states</h3>
+        <div class="desc">Lifecycle status</div>
+        <div class="chart" id="c_state"></div></div>
+      <div class="card third"><h3>Type of purchase</h3>
+        <div class="desc">Commercial model</div>
+        <div class="chart" id="c_purchase"></div></div>
+      <div class="card third"><h3>Payout frequency (aligned)</h3>
+        <div class="desc">Cadence where a turnover-discount alignment exists</div>
+        <div class="chart" id="c_payout"></div></div>
+      <div class="card two-third"><h3>Contract term adoption</h3>
+        <div class="desc">Share of contracts with each clause enabled</div>
+        <div class="chart tall" id="c_adopt"></div></div>
+      <div class="card third"><h3>Contracts executed by month</h3>
+        <div class="desc">Execution timeline</div>
+        <div class="chart tall" id="c_time"></div></div>
+      <div class="card two-third"><h3>Top manufacturers by contract count</h3>
+        <div class="desc">Suppliers with the most contracts</div>
+        <div class="chart" id="c_mfr"></div></div>
+      <div class="card half"><h3>SP benchmarking — aligned manufacturers</h3>
+        <div class="desc"><b id="c_sp_count">…</b> manufacturers aligned · aligned RM % per row</div>
+        <input type="text" id="c_sp_search" class="tsearch" placeholder="Filter manufacturers…">
+        <div id="c_sp" class="rtable scroll"></div></div>
+      <div class="card half"><h3>Turnover-discount — aligned manufacturers</h3>
+        <div class="desc"><b id="c_tv_count">…</b> manufacturers aligned · with payout cadence</div>
+        <input type="text" id="c_turnover_search" class="tsearch" placeholder="Filter manufacturers…">
+        <div id="c_turnover" class="rtable scroll"></div></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-data">
+    <div class="note">
+      <b>Upload raw parquet &amp; rebuild.</b> Drop the source parquet files below — they are
+      matched to datasets <b>by filename</b> (e.g. <code>satellite_fees_actuals_part*.parquet</code>).
+      Large facts are multi-part: upload every <code>part</code> file for satellite fees and
+      defective returns. When all required datasets show <b>ready</b>, hit <b>Rebuild</b>: the
+      analytics DB regenerates in the background and the dashboard hot-swaps to the new data.
+    </div>
+    <div class="grid cards">
+      <div class="card half">
+        <h3>Upload files</h3>
+        <div class="desc">Select or drop one or many <code>.parquet</code> files</div>
+        <div id="dropzone" class="dropzone">
+          <div><b>Drop parquet files here</b> or click to browse</div>
+          <div class="desc" style="margin-top:6px">Multiple files supported · large multi-part sets OK</div>
+          <input type="file" id="fileInput" accept=".parquet" multiple hidden>
+        </div>
+        <div id="uploadList"></div>
+        <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="theme-btn" id="rebuildBtn">⟳ Rebuild dashboard</button>
+          <button class="theme-btn" id="resetBtn">Clear staged files</button>
+        </div>
+      </div>
+      <div class="card half">
+        <h3>Staged datasets</h3>
+        <div class="desc">Files currently staged, grouped by dataset · <span id="data_ready_note">…</span></div>
+        <div id="datasetTable" class="rtable scroll"></div>
+      </div>
+      <div class="card">
+        <h3>Rebuild log</h3>
+        <div class="desc">Progress of the most recent rebuild</div>
+        <div id="rebuildLog" class="rebuild-log">No rebuild run yet.</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const PAL = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'];
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const series = () => PAL.map(css);
+const charts = {};
+
+// ---- Indian currency / number formatting ----
+function inr(n){
+  if(n==null||isNaN(n)) return '–';
+  const a=Math.abs(n);
+  if(a>=1e7) return '₹'+(n/1e7).toFixed(2)+' Cr';
+  if(a>=1e5) return '₹'+(n/1e5).toFixed(2)+' L';
+  if(a>=1e3) return '₹'+(n/1e3).toFixed(1)+' K';
+  return '₹'+Math.round(n);
+}
+function num(n){
+  if(n==null||isNaN(n)) return '–';
+  const a=Math.abs(n);
+  if(a>=1e7) return (n/1e7).toFixed(2)+' Cr';
+  if(a>=1e5) return (n/1e5).toFixed(2)+' L';
+  if(a>=1e3) return (n/1e3).toFixed(1)+' K';
+  return Math.round(n).toLocaleString('en-IN');
+}
+
+function mk(id){
+  if(charts[id]){ charts[id].dispose(); }
+  const c = echarts.init(document.getElementById(id), null, {renderer:'canvas'});
+  charts[id]=c; return c;
+}
+function baseGrid(){ return {left:8,right:24,top:16,bottom:8,containLabel:true}; }
+// NB: no axisLabel here — call sites set their own (with formatters); a shared
+// axisLabel would overwrite those under Object.assign's shallow merge.
+function axisStyle(){
+  return {
+    axisLine:{lineStyle:{color:css('--axis')}},
+    axisTick:{show:false},
+    splitLine:{lineStyle:{color:css('--grid')}},
+    nameTextStyle:{color:css('--muted')}
+  };
+}
+const catLbl = () => ({color:css('--muted'),fontSize:11});
+function tip(extra){ return Object.assign({
+  trigger:'axis', backgroundColor:css('--surface'),
+  borderColor:css('--border'), textStyle:{color:css('--text-1'),fontSize:12},
+  axisPointer:{lineStyle:{color:css('--axis')}}
+}, extra||{}); }
+
+// generic horizontal bar. Optional tipFmt(p)->html overrides the default tooltip.
+function hbar(id, rows, labelKey, valKey, fmt, color, tipFmt){
+  const c=mk(id);
+  const data=rows.slice().reverse();
+  c.setOption({
+    grid:baseGrid(),
+    tooltip:tip({trigger:'item', formatter:tipFmt||(p=>`${p.name}<br/><b>${fmt(p.value)}</b>`)}),
+    xAxis:Object.assign({type:'value',axisLabel:{color:css('--muted'),fontSize:11,formatter:fmt}},axisStyle()),
+    yAxis:Object.assign({type:'category',data:data.map(r=>r[labelKey]),
+      axisLabel:{color:css('--text-2'),fontSize:11,width:150,overflow:'truncate'}},axisStyle()),
+    series:[{type:'bar',data:data.map(r=>r[valKey]),
+      itemStyle:{color:color||css('--s1'),borderRadius:[0,4,4,0]},barMaxWidth:22}]
+  });
+}
+// donut. Optional center={value,label} renders text in the ring's hole.
+function donut(id, rows, labelKey, valKey, fmt, center){
+  const c=mk(id); const cols=series();
+  const graphic = center ? [{type:'group',left:'32%',top:'50%',children:[
+      {type:'text',style:{text:String(center.value),textAlign:'center',fill:css('--text-1'),
+        font:'650 24px system-ui'},top:-16},
+      {type:'text',style:{text:center.label,textAlign:'center',fill:css('--muted'),
+        font:'11px system-ui'},top:12}
+    ]}] : [];
+  c.setOption({
+    graphic,
+    tooltip:{trigger:'item',backgroundColor:css('--surface'),borderColor:css('--border'),
+      textStyle:{color:css('--text-1')},formatter:p=>`${p.name}<br/><b>${fmt?fmt(p.value):p.value}</b> (${p.percent}%)`},
+    legend:{type:'scroll',orient:'vertical',right:0,top:'center',textStyle:{color:css('--text-2'),fontSize:11},
+      itemWidth:10,itemHeight:10},
+    series:[{type:'pie',radius:['45%','72%'],center:['32%','50%'],
+      itemStyle:{borderColor:css('--surface'),borderWidth:2},
+      label:{show:false},
+      data:rows.map((r,i)=>({name:r[labelKey],value:r[valKey],itemStyle:{color:cols[i%cols.length]}}))}]
+  });
+}
+
+// ---------------- Overview ----------------
+async function loadOverview(){
+  const d = await (await fetch('/api/overview')).json();
+  const k = d.kpis;
+  document.getElementById('daterange').textContent =
+    `Satellite fees ${k.sat_start} → ${k.sat_end} · Blinkit fees & contracts analytics`;
+  document.getElementById('footnote').textContent =
+    `${num(k.sat_rows)} fee rows · ${num(k.total_complaints)} complaints · ${num(k.n_facilities)} facilities`;
+  const cards=[
+    ['Total satellite fee', inr(k.total_satellite_fee),'accent', '₹'+(k.avg_fee_per_unit||0).toFixed(2)+'/unit avg'],
+    ['Units sold (net)', num(k.total_net_qty),'', num(k.n_fee_manufacturers)+' manufacturers'],
+    ['Satellite cities', num(k.n_satellite_cities),'', num(k.n_facilities)+' facilities'],
+    ['Return penalties', inr(k.total_penalty),'danger', num(k.total_complaints)+' complaints'],
+    ['Defective units', num(k.total_returns),'', inr(k.total_return_gmv)+' return GMV'],
+    ['Contracts', num(k.n_contracts),'', num(k.n_contract_mfrs)+' manufacturers'],
+  ];
+  document.getElementById('kpis').innerHTML = cards.map(c=>
+    `<div class="kpi"><div class="label">${c[0]}</div><div class="value ${c[2]}">${c[1]}</div><div class="foot">${c[3]}</div></div>`).join('');
+
+  // fee trend — applicable fee + units
+  let c=mk('ov_fee');
+  c.setOption({grid:baseGrid(),legend:{data:['Fee','Units'],textStyle:{color:css('--text-2')},top:0},
+    tooltip:tip({formatter:p=>`${p[0].axisValue}<br/>Fee: <b>${inr(p[0].value)}</b><br/>Units: <b>${num(p[1]?p[1].value:0)}</b>`}),
+    xAxis:Object.assign({type:'category',data:d.fee_trend.map(r=>r.day),boundaryGap:false,axisLabel:catLbl()},axisStyle()),
+    yAxis:Object.assign({type:'value',axisLabel:{color:css('--muted'),fontSize:11,formatter:inr}},axisStyle()),
+    series:[{name:'Fee',type:'line',smooth:true,showSymbol:false,data:d.fee_trend.map(r=>r.fee),
+      lineStyle:{width:2,color:css('--s1')},
+      areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:css('--s1')+'55'},{offset:1,color:css('--s1')+'05'}])}},
+     {name:'Units',type:'line',smooth:true,showSymbol:false,data:d.fee_trend.map(r=>r.qty),lineStyle:{width:1.5,color:css('--s3'),type:'dashed'}}]});
+
+  // penalty trend
+  c=mk('ov_pen');
+  c.setOption({grid:baseGrid(),tooltip:tip({formatter:p=>`${p[0].axisValue}<br/><b>${inr(p[0].value)}</b>`}),
+    xAxis:Object.assign({type:'category',data:d.penalty_trend.map(r=>r.day),boundaryGap:false,axisLabel:catLbl()},axisStyle()),
+    yAxis:Object.assign({type:'value',axisLabel:{color:css('--muted'),fontSize:11,formatter:inr}},axisStyle()),
+    series:[{type:'line',smooth:true,showSymbol:false,data:d.penalty_trend.map(r=>r.penalty),
+      lineStyle:{width:2,color:css('--s8')},
+      areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:css('--s8')+'55'},{offset:1,color:css('--s8')+'05'}])}}]});
+
+  const s = await (await fetch('/api/satellite')).json();
+  donut('ov_split', s.split.map(r=>({name:r.chain+' · '+r.mrp_tier,fee:r.fee})),'name','fee',inr);
+  const r = await (await fetch('/api/returns')).json();
+  hbar('ov_type', r.types.map(t=>({label:t.complaint_type.replace('COMPLAINT_','').replace(/_/g,' '),v:t.penalty})).slice(0,8),'label','v',inr,css('--s8'));
+}
+
+// ---------------- Satellite ----------------
+async function loadSatelliteFilters(){
+  const f=await (await fetch('/api/satellite/filters')).json();
+  const cs=document.getElementById('f_city'), ms=document.getElementById('f_mfr');
+  f.cities.forEach(c=>{const o=document.createElement('option');o.value=o.textContent=c;cs.appendChild(o);});
+  f.manufacturers.forEach(m=>{const o=document.createElement('option');o.value=o.textContent=m;ms.appendChild(o);});
+  cs.onchange=()=>{ if(cs.value!=='all') ms.value='all'; loadSatellite(); };
+  ms.onchange=()=>{ if(ms.value!=='all') cs.value='all'; loadSatellite(); };
+  const sb=document.getElementById('sat_city_search');
+  if(sb) sb.addEventListener('input', e=>renderSatCities(e.target.value));
+}
+async function loadSatellite(){
+  const city=document.getElementById('f_city').value, mfr=document.getElementById('f_mfr').value;
+  const note=document.getElementById('sat_note');
+  note.textContent = city!=='all'?('Filtered: '+city):(mfr!=='all'?('Filtered: '+mfr):'Showing all');
+  const d=await (await fetch(`/api/satellite?city=${encodeURIComponent(city)}&manufacturer=${encodeURIComponent(mfr)}`)).json();
+
+  // daily dual (fee area + units line). "All" also carries the applicable-fee
+  // reference line; drill-downs (single city/mfr) only have fee + units.
+  const hasApp = d.daily.length && d.daily[0].applicable!=null;
+  const legend = hasApp ? ['Fee','Applicable','Units'] : ['Fee','Units'];
+  const dseries=[
+    {name:'Fee',type:'line',smooth:true,showSymbol:false,data:d.daily.map(r=>r.fee),lineStyle:{width:2,color:css('--s1')},
+     areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:css('--s1')+'40'},{offset:1,color:css('--s1')+'05'}])}}];
+  if(hasApp) dseries.push({name:'Applicable',type:'line',smooth:true,showSymbol:false,data:d.daily.map(r=>r.applicable),lineStyle:{width:1.5,color:css('--s4'),type:'dashed'}});
+  dseries.push({name:'Units',type:'line',smooth:true,showSymbol:false,data:d.daily.map(r=>r.qty),lineStyle:{width:1.5,color:css('--s3'),type:'dotted'}});
+  let c=mk('sat_daily');
+  c.setOption({grid:baseGrid(),legend:{data:legend,textStyle:{color:css('--text-2')},top:0},
+    tooltip:tip({formatter:p=>p.map(x=>`${x.seriesName}: <b>${x.seriesName==='Units'?num(x.value):inr(x.value)}</b>`).join('<br/>')
+      .replace(/^/,`${p[0].axisValue}<br/>`)}),
+    xAxis:Object.assign({type:'category',data:d.daily.map(r=>r.day),boundaryGap:false,axisLabel:catLbl()},axisStyle()),
+    yAxis:Object.assign({type:'value',axisLabel:{color:css('--muted'),fontSize:11,formatter:inr}},axisStyle()),
+    series:dseries});
+
+  const cityKm={}; d.cities.forEach(r=>{ cityKm[r.city]=r.distance_km; });
+  hbar('sat_city', d.cities.map(r=>({label:r.city,v:r.fee})),'label','v',inr,css('--s1'),
+       p=>{const km=cityKm[p.name]!=null?` · ${Math.round(cityKm[p.name])} km`:' · local'; return `${p.name}${km}<br/><b>${inr(p.value)}</b>`;});
+  hbar('sat_mfr', d.manufacturers.map(r=>({label:r.manufacturer,v:r.fee})),'label','v',inr,css('--s2'));
+  hbar('sat_facility', d.facilities.map(r=>({label:r.facility,v:r.fee})),'label','v',inr,css('--s6'));
+  hbar('sat_dist', d.distance.map(r=>({label:r.band,v:r.fee})),'label','v',inr,css('--s7'));
+  donut('sat_split', d.split.map(r=>({name:r.chain+' · '+r.mrp_tier,fee:r.fee})),'name','fee',inr);
+
+  // all satellite cities list (searchable)
+  satCities = d.all_cities||[];
+  document.getElementById('sat_ncities').textContent = num(satCities.length);
+  renderSatCities('');
+}
+let satCities=[];
+function renderSatCities(filter){
+  const el=document.getElementById('sat_city_table'); if(!el) return;
+  const f=(filter||'').toLowerCase();
+  const rows=satCities.filter(r=>!f||(r.city||'').toLowerCase().includes(f));
+  el.innerHTML =
+    `<table><thead><tr><th>City</th><th class="num">BE min distance</th>`+
+    `<th class="num">Fee</th><th class="num">Units (net)</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr><td>${r.city||''}</td>`+
+      `<td class="num">${r.distance_km!=null?Math.round(r.distance_km)+' km':'–'}</td>`+
+      `<td class="num">${inr(r.fee)}</td>`+
+      `<td class="num">${num(r.net_qty)}</td></tr>`).join('')+
+    `</tbody></table>`;
+}
+
+// ---------------- Returns ----------------
+async function loadReturnsFilters(){
+  const f=await (await fetch('/api/returns/filters')).json();
+  const s=document.getElementById('f_ctype');
+  f.complaint_types.forEach(t=>{const o=document.createElement('option');o.value=t;
+    o.textContent=t.replace('COMPLAINT_','').replace(/_/g,' ');s.appendChild(o);});
+  s.onchange=loadReturns;
+}
+async function loadReturns(){
+  const ct=document.getElementById('f_ctype').value;
+  const d=await (await fetch(`/api/returns?complaint_type=${encodeURIComponent(ct)}`)).json();
+
+  // KPI row — totals across the current selection
+  const tot=d.types.reduce((a,t)=>{a.pen+=t.penalty||0;a.qty+=t.returns_qty||0;a.cmp+=t.complaints||0;a.gmv+=t.gmv||0;return a;},{pen:0,qty:0,cmp:0,gmv:0});
+  const rk=[
+    ['Total penalty', inr(tot.pen),'danger', num(tot.cmp)+' complaints'],
+    ['Units returned', num(tot.qty),'', 'defective units'],
+    ['Return GMV', inr(tot.gmv),'', 'value of returns'],
+    ['Complaint types', num(d.types.length),'', 'categories'],
+  ];
+  const rkEl=document.getElementById('ret_kpis');
+  if(rkEl) rkEl.innerHTML = rk.map(c=>`<div class="kpi"><div class="label">${c[0]}</div><div class="value ${c[2]}">${c[1]}</div><div class="foot">${c[3]}</div></div>`).join('');
+
+  let c=mk('ret_daily');
+  c.setOption({grid:baseGrid(),legend:{data:['Penalty','Units','Complaints'],textStyle:{color:css('--text-2')},top:0},
+    tooltip:tip({formatter:p=>`${p[0].axisValue}<br/>`+p.map(x=>`${x.seriesName}: <b>${x.seriesName==='Penalty'?inr(x.value):num(x.value)}</b>`).join('<br/>')}),
+    xAxis:Object.assign({type:'category',data:d.daily.map(r=>r.day),boundaryGap:false,axisLabel:catLbl()},axisStyle()),
+    yAxis:Object.assign({type:'value',axisLabel:{color:css('--muted'),fontSize:11,formatter:inr}},axisStyle()),
+    series:[
+      {name:'Penalty',type:'line',smooth:true,showSymbol:false,data:d.daily.map(r=>r.penalty),lineStyle:{width:2,color:css('--s8')},
+       areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:css('--s8')+'40'},{offset:1,color:css('--s8')+'05'}])}},
+      {name:'Units',type:'line',smooth:true,showSymbol:false,data:d.daily.map(r=>r.returns_qty),lineStyle:{width:1.5,color:css('--s3'),type:'dotted'}},
+      {name:'Complaints',type:'line',smooth:true,showSymbol:false,data:d.daily.map(r=>r.complaints),lineStyle:{width:1.5,color:css('--s4'),type:'dashed'}}
+    ]});
+
+  const clean=s=>(s||'').replace('COMPLAINT_','').replace(/_/g,' ');
+  const qtyOf={}; d.types.forEach(t=>{qtyOf[clean(t.complaint_type)]=t.returns_qty;});
+  hbar('ret_type', d.types.map(r=>({label:clean(r.complaint_type),v:r.penalty})),'label','v',inr,css('--s8'),
+       p=>`${p.name}<br/>Penalty: <b>${inr(p.value)}</b><br/>Units: <b>${num(qtyOf[p.name])}</b>`);
+  hbar('ret_type_qty', d.types.map(r=>({label:clean(r.complaint_type),v:r.returns_qty})),'label','v',num,css('--s3'),
+       p=>`${p.name}<br/><b>${num(p.value)}</b> units`);
+  const mQty={}; d.manufacturers.forEach(m=>{mQty[m.manufacturer]=m.returns_qty;});
+  hbar('ret_mfr', d.manufacturers.map(r=>({label:r.manufacturer,v:r.penalty})),'label','v',inr,css('--s2'),
+       p=>`${p.name}<br/>Penalty: <b>${inr(p.value)}</b><br/>Units: <b>${num(mQty[p.name])}</b>`);
+  const iQty={}; d.items.forEach(m=>{iQty[m.item_name]=m.returns_qty;});
+  hbar('ret_item', d.items.slice(0,15).map(r=>({label:r.item_name,v:r.penalty})),'label','v',inr,css('--s5'),
+       p=>`${p.name}<br/>Penalty: <b>${inr(p.value)}</b><br/>Units: <b>${num(iQty[p.name])}</b>`);
+
+  renderCloud('ret_cloud', d.keywords||[]);
+
+  // defect summary paragraph (derived from complaint mix + defect keywords)
+  const sm=d.summary||{}, tt=sm.top_types||[], dk=sm.top_defects||[];
+  const sEl=document.getElementById('ret_summary');
+  if(sEl){
+    if(tt.length){
+      const lead=tt[0];
+      const rest=tt.slice(1).map(t=>`${t.label} (${t.pct_complaints}%)`).join(' and ');
+      sEl.innerHTML =
+        `<b>What’s driving defective returns.</b> <b>${lead.label}</b> is the dominant category — `+
+        `${lead.pct_complaints}% of complaints and ${lead.pct_units}% of units returned`+
+        (rest?`, followed by ${rest}. `:'. ')+
+        (dk.length?`Comment analysis shows the most-cited product defects are: <b>${dk.join(', ')}</b>.`:'');
+    } else { sEl.style.display='none'; }
+  }
+}
+
+// simple HTML word cloud — font-size scales with sqrt(frequency)
+function renderCloud(id, words){
+  const el=document.getElementById(id); if(!el) return;
+  if(!words.length){ el.innerHTML='<div class="loading">No comments.</div>'; return; }
+  const cols=series();
+  const max=Math.max(...words.map(w=>w.n)), min=Math.min(...words.map(w=>w.n));
+  const scale=v=>{ const t=(Math.sqrt(v)-Math.sqrt(min))/(Math.sqrt(max)-Math.sqrt(min)||1); return (13+t*38).toFixed(1); };
+  el.innerHTML = words.map((w,i)=>
+    `<span style="font-size:${scale(w.n)}px;color:${cols[i%cols.length]};font-weight:${w.n>max*0.4?700:500}" title="${w.word}: ${w.n.toLocaleString('en-IN')}">${w.word}</span>`
+  ).join('');
+}
+
+// ---------------- Contracts ----------------
+async function loadContracts(){
+  const d=await (await fetch('/api/contracts')).json();
+  const t=d.terms;
+  const pct=(o,tt)=>tt?Math.round(100*o/tt)+'% of extracts':'—';
+  const kc=[
+    ['Total contracts', num(d.total),'accent',''],
+    ['Min ads-spend enabled', t.ads.on+' / '+t.ads.total,'', pct(t.ads.on,t.ads.total)],
+    ['Target incentives', t.turnover.on+' / '+t.turnover.total,'', pct(t.turnover.on,t.turnover.total)],
+    ['SP benchmarking', t.spbench.on+' / '+t.spbench.total,'', pct(t.spbench.on,t.spbench.total)],
+  ];
+  document.getElementById('c_kpis').innerHTML = kc.map(c=>
+    `<div class="kpi"><div class="label">${c[0]}</div><div class="value ${c[2]}">${c[1]}</div><div class="foot">${c[3]}</div></div>`).join('');
+
+  donut('c_state', d.states,'label','value');
+  donut('c_purchase', d.purchase,'label','value');
+  // #6 payout frequency — aligned records only, total aligned manufacturers in centre
+  donut('c_payout', d.payout,'label','value', null, {value:num(d.payout_mfrs), label:'aligned mfrs'});
+  hbar('c_adopt', d.adoption.map(r=>({label:r.feature,v:r.pct})),'label','v',v=>v+'%',css('--s3'));
+  hbar('c_mfr', d.top_manufacturers.map(r=>({label:r.manufacturer,v:r.contracts})),'label','v',v=>num(v)+' contracts',css('--s7'));
+
+  let c=mk('c_time');
+  c.setOption({grid:baseGrid(),tooltip:tip({formatter:p=>`${p[0].axisValue}<br/><b>${p[0].value} contracts</b>`}),
+    xAxis:Object.assign({type:'category',data:d.timeline.map(r=>r.month),axisLabel:catLbl()},axisStyle()),
+    yAxis:Object.assign({type:'value',axisLabel:{color:css('--muted'),fontSize:11}},axisStyle()),
+    series:[{type:'bar',data:d.timeline.map(r=>r.value),itemStyle:{color:css('--s1'),borderRadius:[4,4,0,0]},barMaxWidth:26}]});
+
+  // #6 SP benchmarking — total count + searchable list
+  cSp = d.sp_by_manufacturer||[];
+  document.getElementById('c_sp_count').textContent = num(d.terms.spbench.mfrs);
+  renderSpList('');
+  const sps=document.getElementById('c_sp_search');
+  if(sps && !sps._wired){ sps._wired=1; sps.addEventListener('input',e=>renderSpList(e.target.value)); }
+
+  // #5/#7 turnover-discount — searchable list
+  cTurnover = d.turnover_by_manufacturer||[];
+  document.getElementById('c_tv_count').textContent = num(cTurnover.length);
+  renderTvList('');
+  const tvs=document.getElementById('c_turnover_search');
+  if(tvs && !tvs._wired){ tvs._wired=1; tvs.addEventListener('input',e=>renderTvList(e.target.value)); }
+}
+let cSp=[], cTurnover=[];
+function _filter(rows,f){ const s=(f||'').toLowerCase(); return s?rows.filter(r=>(r.manufacturer||'').toLowerCase().includes(s)):rows; }
+function renderSpList(f){
+  const el=document.getElementById('c_sp'); if(!el) return;
+  const rows=_filter(cSp,f);
+  el.innerHTML = rows.length
+    ? `<table><thead><tr><th>Manufacturer</th><th class="num">Contracts</th><th class="num">Aligned RM %</th></tr></thead><tbody>`+
+      rows.map(r=>`<tr><td>${r.manufacturer||''}</td><td class="num">${num(r.contracts)}</td>`+
+        `<td class="num">${r.avg_pct!=null?r.avg_pct.toFixed(1)+'%':'–'}</td></tr>`).join('')+
+      `</tbody></table>`
+    : `<div class="loading">No match.</div>`;
+}
+function renderTvList(f){
+  const el=document.getElementById('c_turnover'); if(!el) return;
+  const rows=_filter(cTurnover,f);
+  el.innerHTML = rows.length
+    ? `<table><thead><tr><th>Manufacturer</th><th class="num">Contracts</th><th>Payout frequency</th></tr></thead><tbody>`+
+      rows.map(r=>`<tr><td>${r.manufacturer||''}</td><td class="num">${num(r.contracts)}</td><td>${r.payout||''}</td></tr>`).join('')+
+      `</tbody></table>`
+    : `<div class="loading">No match.</div>`;
+}
+
+// ---------------- Purchase returns (recall PRN) ----------------
+async function loadPurchaseReturns(){
+  const d=await (await fetch('/api/purchase-returns')).json();
+  const t=d.totals||{};
+  const kc=[
+    ['Units returned', num(t.qty),'accent', num(t.notices)+' recall notices'],
+    ['Recall fee', inr(t.fee),'danger', 'recall-assistance charges'],
+    ['Manufacturers', num(t.mfrs),'', 'with recalls'],
+    ['Items recalled', num(t.items),'', 'distinct SKUs'],
+  ];
+  document.getElementById('pr_kpis').innerHTML = kc.map(c=>
+    `<div class="kpi"><div class="label">${c[0]}</div><div class="value ${c[2]}">${c[1]}</div><div class="foot">${c[3]}</div></div>`).join('');
+
+  hbar('pr_qty', d.by_manufacturer.map(r=>({label:r.manufacturer,v:r.return_qty})),'label','v',num,css('--s1'),
+       p=>`${p.name}<br/><b>${num(p.value)}</b> units returned`);
+  hbar('pr_fee', d.by_manufacturer.map(r=>({label:r.manufacturer,v:r.fee})),'label','v',inr,css('--s8'));
+
+  const rows=d.rows||[];
+  const el=document.getElementById('pr_table');
+  if(el){
+    el.innerHTML = rows.length
+      ? `<table><thead><tr><th>Date</th><th>Manufacturer</th><th>Item</th><th>Entity</th><th class="num">PRN qty</th><th class="num">Charges</th></tr></thead><tbody>`+
+        rows.map(r=>`<tr><td>${r.date||''}</td><td>${r.manufacturer||''}</td><td>${r.item_name||''}</td><td>${r.entity||''}</td>`+
+          `<td class="num">${r.prn_qty!=null?num(r.prn_qty):'–'}</td>`+
+          `<td class="num">${r.recall_charges!=null?inr(r.recall_charges):'–'}</td></tr>`).join('')+
+        `</tbody></table>`
+      : `<div class="loading">No recall notices logged.</div>`;
+  }
+}
+
+// ---------------- Ads spend ----------------
+async function loadAds(){
+  const d=await (await fetch('/api/ads')).json();
+  const kc=[
+    ['Ads-spend extracts', num(d.total),'accent',''],
+    ['Aligned contracts', num(d.aligned),'', d.total?Math.round(100*d.aligned/d.total)+'% with clause':''],
+    ['Aligned manufacturers', num(d.n_mfr),'', 'min ads-spend clause'],
+  ];
+  document.getElementById('ads_kpis').innerHTML = kc.map(c=>
+    `<div class="kpi"><div class="label">${c[0]}</div><div class="value ${c[2]}">${c[1]}</div><div class="foot">${c[3]}</div></div>`).join('');
+
+  const ctOf={}; d.by_manufacturer.forEach(r=>{ctOf[r.manufacturer]=r.contracts;});
+  const pctFmt=v=>(v==null?'–':v.toFixed(1)+'%');
+  hbar('ads_mfr', d.by_manufacturer.map(r=>({label:r.manufacturer,v:r.avg_pct})),'label','v',pctFmt,css('--s4'),
+       p=>`${p.name}<br/>Committed ads-spend: <b>${pctFmt(p.value)}</b><br/>${num(ctOf[p.name])} contract(s)`);
+  donut('ads_enabled', d.enabled,'label','value');
+  donut('ads_basis', d.basis,'label','value');
+}
+
+// ---------------- Raw-data downloads ----------------
+async function initDownloads(){
+  let m;
+  try { m = await (await fetch('/api/export/manifest')).json(); }
+  catch(e){ return; }
+  ['overview','satellite','returns','purchase_returns','ads','contracts'].forEach(page=>{
+    const el=document.getElementById('dl-'+page); if(!el) return;
+    const b=(m.pages&&m.pages[page])||{start:'',end:''};
+    const dsets=m.datasets.filter(d=>d.pages.includes(page));
+    if(!dsets.length){ el.style.display='none'; return; }
+    el.innerHTML=
+      `<span class="dl-label">⤓ Download raw data</span>`+
+      `<label>From</label><input type="date" class="dl-start" value="${b.start}" min="${b.start}" max="${b.end}">`+
+      `<label>To</label><input type="date" class="dl-end" value="${b.end}" min="${b.start}" max="${b.end}">`+
+      `<select class="dl-ds">`+
+        dsets.map(d=>`<option value="${d.id}">${d.label}</option>`).join('')+
+      `</select>`+
+      `<button class="dl-one theme-btn">Download CSV</button>`+
+      `<span class="spacer"></span>`+
+      `<button class="dl-all theme-btn">Download all (ZIP)</button>`;
+    const sv=el.querySelector('.dl-start'), ev=el.querySelector('.dl-end'), ds=el.querySelector('.dl-ds');
+    const qs=()=>{
+      const s=sv.value, e=ev.value;
+      if(s&&e&&s>e){ ev.value=s; }
+      return `start=${encodeURIComponent(sv.value)}&end=${encodeURIComponent(ev.value)}`;
+    };
+    el.querySelector('.dl-one').onclick=()=>{ window.location=`/api/export?dataset=${encodeURIComponent(ds.value)}&${qs()}`; };
+    el.querySelector('.dl-all').onclick=()=>{ window.location=`/api/export/page/${page}?${qs()}`; };
+  });
+}
+
+// ---------------- Manage data (upload + rebuild) ----------------
+let dataWired=false, pollTimer=null;
+function fmtBytes(b){
+  if(b==null) return '';
+  if(b>=1e9) return (b/1e9).toFixed(2)+' GB';
+  if(b>=1e6) return (b/1e6).toFixed(1)+' MB';
+  if(b>=1e3) return (b/1e3).toFixed(0)+' KB';
+  return b+' B';
+}
+async function loadDataTab(){
+  wireDataTab();
+  await refreshDataStatus();
+}
+function wireDataTab(){
+  if(dataWired) return; dataWired=true;
+  const dz=document.getElementById('dropzone'), fi=document.getElementById('fileInput');
+  dz.onclick=()=>fi.click();
+  fi.onchange=()=>{ if(fi.files.length) uploadFiles(fi.files); fi.value=''; };
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
+  dz.addEventListener('drop',e=>{ if(e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); });
+  document.getElementById('rebuildBtn').onclick=doRebuild;
+  document.getElementById('resetBtn').onclick=doReset;
+}
+async function refreshDataStatus(){
+  let s;
+  try{ s=await (await fetch('/api/data/status')).json(); }catch(e){ return; }
+  renderDatasets(s); renderRebuild(s.rebuild);
+  // keep polling while a rebuild is running
+  if(s.rebuild.state==='running'){ if(!pollTimer) pollTimer=setInterval(refreshDataStatus,1500); }
+  else if(pollTimer){ clearInterval(pollTimer); pollTimer=null;
+    if(s.rebuild.state==='done') reloadAll(); }   // new data → refresh charts
+  return s;
+}
+function renderDatasets(s){
+  const note=document.getElementById('data_ready_note');
+  if(note) note.innerHTML = s.all_ready
+    ? '<span class="up-ok">all required datasets ready</span>'
+    : 'some datasets missing — upload to enable rebuild';
+  const el=document.getElementById('datasetTable'); if(!el) return;
+  el.innerHTML =
+    `<table><thead><tr><th>Dataset</th><th>Status</th><th class="num">Files</th><th class="num">Size</th></tr></thead><tbody>`+
+    s.datasets.map(d=>{
+      const size=d.files.reduce((a,f)=>a+f.bytes,0);
+      const names=d.files.map(f=>f.name).join('<br>')||'<span class="fmeta">— none —</span>';
+      return `<tr><td>${d.label}${d.multi?' <span class="fmeta">(multi-part)</span>':''}<br><span class="fmeta">${names}</span></td>`+
+        `<td><span class="badge ${d.ready?'ready':'missing'}">${d.ready?'ready':'missing'}</span></td>`+
+        `<td class="num">${d.files.length}</td><td class="num">${size?fmtBytes(size):'–'}</td></tr>`;
+    }).join('')+`</tbody></table>`;
+}
+function renderRebuild(rb){
+  const el=document.getElementById('rebuildLog'); if(!el) return;
+  const head={idle:'Idle.',running:'⏳ Rebuilding…',done:'✓ Rebuild complete.',error:'✗ Rebuild failed.'}[rb.state]||'';
+  const lines=(rb.log||[]).join('\n');
+  el.textContent = head + (rb.started?`  (started ${rb.started}${rb.finished?', finished '+rb.finished:''})`:'') +
+    (lines?'\n\n'+lines:(rb.state==='idle'?'':''));
+  el.scrollTop=el.scrollHeight;
+  const btn=document.getElementById('rebuildBtn');
+  if(btn){ btn.disabled = rb.state==='running'; btn.textContent = rb.state==='running'?'⟳ Rebuilding…':'⟳ Rebuild dashboard'; }
+}
+function uploadFiles(fileList){
+  const files=Array.from(fileList);
+  const listEl=document.getElementById('uploadList');
+  // one progress row per file
+  const rows=files.map(f=>{
+    const row=document.createElement('div'); row.className='up-row';
+    row.innerHTML=`<span class="fname">${f.name}</span>`+
+      `<div class="up-bar"><i></i></div><span class="fmeta">${fmtBytes(f.size)}</span>`;
+    listEl.appendChild(row); return row;
+  });
+  // upload sequentially so huge multi-part sets don't hit one giant request
+  let i=0;
+  function next(){
+    if(i>=files.length){ refreshDataStatus(); return; }
+    const f=files[i], row=rows[i], bar=row.querySelector('.up-bar > i'), meta=row.querySelector('.fmeta');
+    const fd=new FormData(); fd.append('files', f, f.name);
+    const xhr=new XMLHttpRequest();
+    xhr.open('POST','/api/data/upload');
+    xhr.upload.onprogress=e=>{ if(e.lengthComputable) bar.style.width=(100*e.loaded/e.total).toFixed(0)+'%'; };
+    xhr.onload=()=>{
+      let ok=xhr.status===200, res=null;
+      try{ res=JSON.parse(xhr.responseText).results[0]; }catch(_){}
+      if(ok && res && res.ok){ bar.style.width='100%'; meta.innerHTML=`<span class="up-ok">✓ ${res.label}</span>`; }
+      else { bar.style.background='var(--critical)'; meta.innerHTML=`<span class="up-err">✗ ${(res&&res.error)||'failed'}</span>`; }
+      i++; next();
+    };
+    xhr.onerror=()=>{ meta.innerHTML='<span class="up-err">✗ network error</span>'; i++; next(); };
+    xhr.send(fd);
+  }
+  next();
+}
+async function doRebuild(){
+  const btn=document.getElementById('rebuildBtn'); btn.disabled=true;
+  try{
+    const r=await fetch('/api/data/rebuild',{method:'POST'});
+    if(!r.ok){ const e=await r.json().catch(()=>({})); alert('Cannot rebuild: '+(e.detail||r.status)); btn.disabled=false; return; }
+  }catch(e){ alert('Rebuild request failed: '+e); btn.disabled=false; return; }
+  refreshDataStatus();
+}
+async function doReset(){
+  if(!confirm('Remove all staged parquet files? (The current dashboard data is not affected until you rebuild.)')) return;
+  await fetch('/api/data/reset',{method:'POST'});
+  document.getElementById('uploadList').innerHTML='';
+  refreshDataStatus();
+}
+
+// ---------------- Tabs / theme ----------------
+const loaded={};
+function activate(tab){
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('active',s.id==='tab-'+tab));
+  if(!loaded[tab]){
+    loaded[tab]=true;
+    if(tab==='satellite'){ loadSatelliteFilters().then(loadSatellite); }
+    else if(tab==='returns'){ loadReturnsFilters().then(loadReturns); }
+    else if(tab==='purchase_returns'){ loadPurchaseReturns(); }
+    else if(tab==='ads'){ loadAds(); }
+    else if(tab==='contracts'){ loadContracts(); }
+  }
+  // the Data tab is stateful (upload progress / rebuild) — refresh every open
+  if(tab==='data'){ loadDataTab(); }
+  setTimeout(()=>Object.values(charts).forEach(c=>c.resize()),50);
+}
+document.getElementById('nav').addEventListener('click',e=>{
+  if(e.target.dataset.tab) activate(e.target.dataset.tab);
+});
+function reloadAll(){
+  loadOverview();
+  Object.keys(loaded).forEach(t=>{
+    if(t==='satellite') loadSatellite();
+    else if(t==='returns') loadReturns();
+    else if(t==='purchase_returns') loadPurchaseReturns();
+    else if(t==='ads') loadAds();
+    else if(t==='contracts') loadContracts();
+  });
+}
+document.getElementById('themeBtn').onclick=()=>{
+  const cur=document.documentElement.getAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme',cur==='dark'?'light':'dark');
+  setTimeout(reloadAll,30);
+};
+if(matchMedia('(prefers-color-scheme:dark)').matches)
+  document.documentElement.setAttribute('data-theme','dark');
+window.addEventListener('resize',()=>Object.values(charts).forEach(c=>c.resize()));
+loadOverview();
+initDownloads();
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: contracts-fees-insights-data
+  labels:
+    app: contracts-fees-insights
+spec:
+  # replicas=1, so single-writer RWO is sufficient.
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      # Holds staged parquet uploads (up to ~1 GB satellite set) + the rebuilt
+      # DuckDB + its spill temp dir. Sized with headroom for a full rebuild.
+      storage: 12Gi
+  # No storageClassName -> the cluster's default StorageClass provisions it.

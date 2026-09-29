@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: contracts-fees-insights
+  labels:
+    app: contracts-fees-insights
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: contracts-fees-insights
+  template:
+    metadata:
+      labels:
+        app: contracts-fees-insights
+    spec:
+      containers:
+        - name: web
+          image: contracts-fees-insights
+          ports:
+            - containerPort: 8000
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: "8000"
+            # Persist staged uploads + the rebuilt DB on the mounted volume.
+            - name: UPLOAD_DIR
+              value: "/data/uploads"
+            - name: DB_PATH
+              value: "/data/insights.duckdb"
+            # On first boot the volume is empty; seed the served DB from the
+            # copy baked into the image so the dashboard ships with data.
+            - name: SEED_DB
+              value: "/app/insights.duckdb"
+            # Cap DuckDB memory so the big satellite rebuild spills to disk
+            # instead of OOM-killing the pod.
+            - name: DUCKDB_MEMORY_LIMIT
+              value: "3GB"
+          volumeMounts:
+            - name: data-store
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+              ephemeral-storage: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+              ephemeral-storage: "8Gi"
+      # PVC: uploads + rebuilt DB persist across restarts AND rescheduling.
+      volumes:
+        - name: data-store
+          persistentVolumeClaim:
+            claimName: contracts-fees-insights-data

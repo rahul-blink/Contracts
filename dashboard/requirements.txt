@@ -1,0 +1,4 @@
+fastapi==0.139.2
+uvicorn[standard]==0.30.6
+duckdb==1.5.4
+python-multipart==0.0.9
