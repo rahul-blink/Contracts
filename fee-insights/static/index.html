@@ -620,16 +620,17 @@ ul.exec li::marker { color: var(--muted); }
 
   <div class="card" id="satOptCard" style="margin-bottom:14px">
     <div class="hd"><h3>Manufacturer opt-in <span class="n" id="soCount"></span></h3></div>
-    <p class="sub">The satellite fee clause is signed, but each manufacturer decides in the opt-in window.
-      Everyone counts as <b>opted in</b> until you mark them out; opted-out manufacturers are removed from
-      the figures below (governed by the same <em>Apply</em> tick-box as the exclusion list).</p>
+    <p class="sub">The satellite fee clause is signed, but each manufacturer confirms in the opt-in window.
+      Everyone counts as <b>opt-in confirmed / default</b> until you mark them <b>opt-in confirmation pending</b>;
+      pending manufacturers are removed from the figures below (governed by the same <em>Apply</em> tick-box
+      as the exclusion list).</p>
     <div class="filters" style="margin:0 0 8px">
       <label class="fld grow"><span>Find a manufacturer</span>
         <input type="search" id="soSearch" placeholder="Manufacturer name"></label>
       <label class="fld"><span>Status</span>
-        <select id="soStatus"><option value="all">All</option><option value="in">Opted in</option><option value="out">Opted out</option></select></label>
-      <label class="fld grow"><span>Note (optional, saved on opt-out)</span>
-        <input type="text" id="soNote" maxlength="300" placeholder="e.g. declined in Oct window"></label>
+        <select id="soStatus"><option value="all">All</option><option value="in">Opt-in confirmed / default</option><option value="out">Opt-in confirmation pending</option></select></label>
+      <label class="fld grow"><span>Note (optional, saved when marked pending)</span>
+        <input type="text" id="soNote" maxlength="300" placeholder="e.g. awaiting confirmation, Oct window"></label>
     </div>
     <div class="tw scrollY" style="max-height:320px"><table id="soTbl"></table></div>
   </div>
@@ -676,9 +677,9 @@ ul.exec li::marker { color: var(--muted); }
     </label>
     <label class="fld"><span>Manufacturers</span>
       <select id="sOptin" title="Which manufacturers the breakdown table and top-12 chart include">
-        <option value="in">Opted in</option>
+        <option value="in">Opt-in confirmed / default</option>
         <option value="all">All with satellite clause</option>
-        <option value="out">Opted out only</option>
+        <option value="out">Opt-in confirmation pending only</option>
       </select></label>
     <label class="fld grow"><span>Search within breakdown</span>
       <input type="search" id="sSearch" placeholder="Filter the rows below"></label>
@@ -1953,18 +1954,18 @@ async function loadOptin() {
     return;
   }
   const t = d.total || {};
-  $('soCount').textContent = `${num(t.mfrs - t.opted_out)} of ${num(t.mfrs)} opted in`
-    + (t.opted_out ? ` · ${num(t.opted_out)} out (${inr(t.opted_out_fee)})` : '');
+  $('soCount').textContent = `${num(t.mfrs - t.opted_out)} of ${num(t.mfrs)} confirmed / default`
+    + (t.opted_out ? ` · ${num(t.opted_out)} confirmation pending (${inr(t.opted_out_fee)})` : '');
   renderTable('soTbl', [
     {k: 'mfr', h: 'Manufacturer', w: '34%', title: (v, r) => `${v} (id ${r.id})`,
      fmt: (v, r) => `${esc(v || '—')}<span class="sub2">${num(r.items)} items · id ${esc(r.id)}</span>`},
     {k: 'contract_state', h: 'Contract', w: '13%', cls: 'hn2', fmt: v => stateBadge(v)},
     {k: 'fee', h: 'Fee (all data)', w: '15%', num: true, title: v => inrFull(v), fmt: v => inr(v)},
     {k: 'opted_in', h: 'Status', w: '20%',
-     fmt: (v, r) => v ? '<span class="badge on">Opted in</span>'
-       : `<span class="badge warn">Opted out</span><span class="sub2">${esc(r.note || '')}${r.note ? ' · ' : ''}${esc(r.changed_at || '')}</span>`},
+     fmt: (v, r) => v ? '<span class="badge on">Confirmed / default</span>'
+       : `<span class="badge warn">Confirmation pending</span><span class="sub2">${esc(r.note || '')}${r.note ? ' · ' : ''}${esc(r.changed_at || '')}</span>`},
     {k: 'id', h: '', w: '18%', num: true,
-     fmt: (v, r) => `<button class="btn sm" data-mfr="${esc(v)}" data-in="${r.opted_in ? '0' : '1'}">${r.opted_in ? 'Opt out' : 'Opt back in'}</button>`},
+     fmt: (v, r) => `<button class="btn sm" data-mfr="${esc(v)}" data-in="${r.opted_in ? '0' : '1'}">${r.opted_in ? 'Mark pending' : 'Mark confirmed'}</button>`},
   ], d.rows || [], {empty: 'No manufacturer matches.'});
   $('soTbl').querySelectorAll('button[data-mfr]').forEach(b => b.onclick = async () => {
     b.disabled = true;
@@ -2029,7 +2030,7 @@ async function searchExcl() {
     {k: 'cities', h: 'Cities', w: '10%', num: true, cls: 'hn', fmt: v => num(v)},
     {k: 'variant_id', h: '', w: '14%', num: true,
      fmt: (v, r) => r.excluded ? '<span class="dim">excluded</span>'
-       : r.mfr_opted_out ? '<span class="dim" title="Its manufacturer is opted out, so it is already removed">mfr opted out</span>'
+       : r.mfr_opted_out ? '<span class="dim" title="Opt-in confirmation is pending for its manufacturer, so it is already removed">mfr pending</span>'
        : `<button class="btn sm" data-excl="${esc(v)}">Exclude</button>`},
   ], rows, {empty: 'No item with a satellite fee matches that search.'});
   $('sxResTbl').querySelectorAll('button[data-excl]').forEach(b => b.onclick = async () => {
@@ -2072,7 +2073,7 @@ async function refreshSat() {
   $('satTiles').innerHTML = [
     tile('Satellite fee — current slice', inr(kp.fee),
          scopeLabel() + (kp.excluded_items
-           ? (kp.exclusions_applied ? ` · ${inr(kp.excluded_fee)} removed` : ' · exclusions & opt-outs off')
+           ? (kp.exclusions_applied ? ` · ${inr(kp.excluded_fee)} removed` : ' · exclusions & pending off')
            : ''), 'hero accent'),
     tile('Net units sold', num(kp.net_qty),
          `${num(kp.qty_sold)} sold − ${num(kp.qty_returned)} returned`),
@@ -2096,14 +2097,14 @@ async function refreshSat() {
 
   if (kp.exclusions_applied && kp.excluded_items) {
     const bits = [];
-    if (kp.optout_mfrs) bits.push(`${num(kp.optout_mfrs)} opted-out manufacturer${kp.optout_mfrs > 1 ? 's' : ''} `
+    if (kp.optout_mfrs) bits.push(`${num(kp.optout_mfrs)} manufacturer${kp.optout_mfrs > 1 ? 's' : ''} with opt-in confirmation pending `
       + `(${inrFull(kp.optout_fee)})`);
     if (kp.item_excl_items) bits.push(`${num(kp.item_excl_items)} excluded item${kp.item_excl_items > 1 ? 's' : ''} `
       + `(${inrFull(kp.item_excl_fee)})`);
-    $('satScopeNote').innerHTML += noteHTML('info', 'Exclusions & opt-outs applied',
+    $('satScopeNote').innerHTML += noteHTML('info', 'Exclusions & pending opt-ins applied',
       `${bits.join(' and ')} removed ${inrFull(kp.excluded_fee)} (${num(kp.excluded_net_qty)} net units) `
       + `from this slice. Totals, the breakdown table, the top-12 chart and the MRP bucket / product type `
-      + `charts reflect both. The daily trend reflects opt-outs`
+      + `charts reflect both. The daily trend reflects pending opt-ins`
       + (kp.item_excl_items ? ' but not item exclusions' : '') + `. The per-unit rate chart, `
       + `serving-facility table and the Satellite cities tab have no manufacturer or item detail, `
       + `so they still include everything.`);
@@ -2168,7 +2169,7 @@ function drawSatTrend(tr) {
   // Dashed and unfilled so it reads as "what it would be", not a second actual.
   const showPot = S.sat.excl;
   const potColor = CSSVar('--s3');
-  if (showPot) series.push(Object.assign(mk('If all opted in', 'fee_potential', potColor), {
+  if (showPot) series.push(Object.assign(mk('If all pending confirm', 'fee_potential', potColor), {
     lineStyle: {width: 2, type: 'dashed', color: potColor},
     areaStyle: null, z: 1,
   }));
@@ -2191,8 +2192,8 @@ function drawSatTrend(tr) {
   const leg = showSplit
     ? [{label: 'On satellite list', color: T().s1, line: true},
        {label: 'Off list (not satellite)', color: T().s2, line: true}]
-    : (showPot ? [{label: 'Satellite fee (opted in)', color: T().s1, line: true}] : []);
-  if (showPot) leg.push({label: 'If all opted in', color: potColor, line: true});
+    : (showPot ? [{label: 'Satellite fee (confirmed / default)', color: T().s1, line: true}] : []);
+  if (showPot) leg.push({label: 'If all pending confirm', color: potColor, line: true});
   setLegend('lgSatTrend', leg);   // one series -> no legend box; the card title names it
   const n = tr.length;
   let potTxt = '';
@@ -2200,8 +2201,8 @@ function drawSatTrend(tr) {
     const act = tr.reduce((a, r) => a + (r.fee || 0), 0);
     const pot = tr.reduce((a, r) => a + (r.fee_potential || 0), 0);
     potTxt = pot - act > 0.5
-      ? ` Opt-outs cost ${inrFull(pot - act)} over these days (${inr(act)} vs ${inr(pot)} if all opted in).`
-      : ' No manufacturer in this slice has opted out, so the dashed line equals the actual.';
+      ? ` Pending opt-in confirmations hold back ${inrFull(pot - act)} over these days (${inr(act)} vs ${inr(pot)} if all pending confirm).`
+      : ' No manufacturer in this slice has opt-in confirmation pending, so the dashed line equals the actual.';
   }
   $('satTrendSub').textContent = n
     ? `${n} day${n > 1 ? 's' : ''}, ${tr[0].day} → ${tr[n - 1].day}. Fee accrued per day for the current slice.` + potTxt
@@ -2272,8 +2273,8 @@ function drawSatBy(by) {
     ? `${num(list.length)} facilities in this slice.`
     : `${num(tot.groups)} ${SAT_DIM_LABEL[dim].toLowerCase()} values in this slice, totalling ${inr(tot.fee)}. `
       + (dim === 'item' ? 'This is the item-level leaf.' : 'Click a row to drill down.')
-      + (!S.sat.excl ? '' : S.sat.optin === 'all' ? ' Showing every manufacturer with the satellite clause, opted out or not.'
-         : S.sat.optin === 'out' ? ' Showing only opted-out manufacturers: fee that would be charged if they opted in.' : '');
+      + (!S.sat.excl ? '' : S.sat.optin === 'all' ? ' Showing every manufacturer with the satellite clause, confirmed or pending.'
+         : S.sat.optin === 'out' ? ' Showing only manufacturers with opt-in confirmation pending: fee that would be charged once they confirm.' : '');
 
   let maxFee = 0; list.forEach(r => { if (r.fee > maxFee) maxFee = r.fee; });
 
@@ -2292,7 +2293,7 @@ function drawSatBy(by) {
   if (dim === 'mfr') cols.push({k: 'contract_state', h: 'Contract', w: '13%',
     cls: 'hn2', fmt: v => stateBadge(v)},
     {k: 'opted_in', h: 'Opt-in', w: '11%', cls: 'hn2',
-     fmt: v => v === false ? '<span class="badge warn">Out</span>' : '<span class="badge on">In</span>'});
+     fmt: v => v === false ? '<span class="badge warn">Pending</span>' : '<span class="badge on">Confirmed</span>'});
   if (isFac) cols.push({k: 'cities', h: 'Cities', w: '9%', num: true, fmt: v => num(v)});
   cols.push(
     {k: 'fee', h: 'Fee', w: '16%', num: true, cls: 'barcell',

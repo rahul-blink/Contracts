@@ -26,6 +26,11 @@ variant id), exclude it with an optional reason, restore it any time. Untick
 
 ## Manufacturer opt-in
 
+UI labels: **Opt-in confirmed / default** and **Opt-in confirmation
+pending** (renamed from "opted in" / "opted out"; the API fields and the
+stored file still say `opted_in` / `sat_optouts.json`, so nothing was
+migrated). Pending manufacturers are the ones removed from the figures.
+
 Satellite fees tab → *Manufacturer opt-in*: the same manufacturer list as
 the rest of the tab (sat_cube). Everyone is **opted in** by default, so an
 empty list is exactly the original numbers; mark a manufacturer *Opt out*
