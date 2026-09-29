@@ -99,6 +99,12 @@ sha256 check on both sides, so the image holds exactly the files in this
 folder (app.py `618bbe0b…`, index.html `7bd880df…`); `fees.duckdb` was
 verified unchanged in the new image (`d2ecad32…`).
 
+Latest: image `01M3PHF491Q5CNPEBB30HYN7XF` (2026-09-29) -- 3-state opt-in with
+CSV download/upload, KAM billable incl. PENDING APPROVAL, KAM addendum dates,
+new Satellite layout. Built `FROM 01M3PCK4F8GTC2XK1M7AGEMA4N` with the same
+sha-checked patch (app.py `fc50c46f…`, index.html `70953e0a…`). Previous
+images remain rollback points.
+
 The state PVC is ReadWriteOnce, so the Deployment uses `strategy: Recreate`:
 each deploy stops the old pod before starting the new one (~30-60 s of
 downtime) so the volume can move between nodes. The volume and the lists on
