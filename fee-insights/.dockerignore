@@ -1,0 +1,10 @@
+# Local test state and raw extracts never go into the image.
+state/
+.venv/
+venv/
+__pycache__/
+*.csv
+*.parquet
+*.duckdb.wal
+*.duckdb.tmp/
+*.building

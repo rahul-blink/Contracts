@@ -3,10 +3,16 @@
 Source of the live Satellite / Defects / KAM / Recall / Contracts dashboard,
 extracted from the running image `fee-insights:dev-20260804-111006`.
 
-`fees.duckdb` (429 MB) is **not** in this repo. It lives inside that image and
-the raw Parquet needed to rebuild it is not here either, so the `Dockerfile`
-builds `FROM` that image and swaps in only `app.py` and `static/index.html`.
-The data served is byte-identical to the Aug 4 build.
+`fees.duckdb` (429 MB) is **not** in this repo (git-ignored: internal data).
+Keep a copy at `fee-insights/fees.duckdb` locally; the self-contained
+`Dockerfile` bakes it into the image, so `chef skaffold up` from this folder
+ships code + DB together. The saved lists live on the `fee-insights-state` PVC
+at `/state`, not in the image. Locally they are read from `fee-insights/state/`.
+
+(Earlier images were built `FROM fee-insights:dev-20260804-111006` as a patch,
+via `apply_delta.py` / `delta_lib.py`, because the web connector could not
+upload the DB. Those files were removed once deploys moved to the Mac; see
+../LOCAL_WORKFLOW.md.)
 
 ## Satellite fee exclusion list
 

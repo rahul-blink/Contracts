@@ -8,6 +8,9 @@ metadata:
     chef/s3-prefix: s3://blinkit-ai-chef-builds/blinkit-apps-saxena-rahul/fee-insights/
 
 build:
+  # The cluster runs linux/amd64; without this an Apple Silicon build
+  # crash-loops with `exec format error`.
+  platforms: ["linux/amd64"]
   artifacts:
   - image: 501578625374.dkr.ecr.ap-south-1.amazonaws.com/chef/blinkit-apps-saxena-rahul/fee-insights/fee-insights
     context: .

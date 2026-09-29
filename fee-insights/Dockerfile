@@ -1,14 +1,17 @@
-# Layer on top of the image currently serving special-quetzal.apps.blinkit.in.
-# fees.duckdb (429 MB, built Aug 4), echarts, the geojson and every Python
-# dependency come from that image byte-for-byte; only the two files changed by
-# the satellite fee exclusion list are replaced. The raw Parquet needed to
-# rebuild fees.duckdb is not in this repo, so this is the only way to ship code
-# changes without touching the data.
-FROM 501578625374.dkr.ecr.ap-south-1.amazonaws.com/chef/blinkit-apps-saxena-rahul/fee-insights/fee-insights:dev-20260804-111006
+# Self-contained image for special-quetzal.apps.blinkit.in, built from the Mac
+# with `chef skaffold up`. fees.duckdb (~430 MB) is copied before the code so a
+# code-only change reuses the cached DB layer and pushes only a few KB. The
+# saved lists (opt-ins, exclusions, KAM addenda) are NOT in the image: they live
+# on the fee-insights-state PVC mounted at /state and survive every deploy.
+FROM python:3.12-slim
 
 WORKDIR /app
-COPY app.py /app/app.py
-COPY static/index.html /app/static/index.html
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY fees.duckdb .
+COPY static ./static
+COPY app.py build_db.py load_contracts.py ./
 
 ENV PORT=8000
 EXPOSE 8000
