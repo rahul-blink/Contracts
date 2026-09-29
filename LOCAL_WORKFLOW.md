@@ -18,6 +18,20 @@ The three places hold different things:
 - **The state volume** holds the lists edited in the live UI. They survive
   every deploy and are **never overwritten from the Mac**.
 
+## Quick start (does phases 0-1 for you)
+
+```bash
+git clone -b claude/inspiring-bardeen-t0ozmw https://github.com/rahul-blink/contracts.git \
+  "/Users/saxena.rahul@grofers.com/Documents/Claude-Fee Insights" \
+  && cd "/Users/saxena.rahul@grofers.com/Documents/Claude-Fee Insights" \
+  && bash scripts/setup_local.sh
+```
+
+`scripts/setup_local.sh` checks tools, builds `.venv`, opens the live
+dashboard for the two downloads if they aren't in ~/Downloads yet, verifies
+the DB checksum, files the backup under `Data/`, and starts the app on
+http://127.0.0.1:8000. Safe to re-run; it deletes nothing.
+
 ---
 
 ## Phase 0 — Back up the live data (do this first)
